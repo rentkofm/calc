@@ -50,24 +50,21 @@ struct FractalView: View {
         .frame(maxWidth: isFullscreen ? .infinity : 720)
         .frame(maxWidth: .infinity)
         .overlay(alignment: .topTrailing) {
+            if isFullscreen { closeButton.padding(12) }
+        }
+        .safeAreaInset(edge: .bottom) {
             if isFullscreen {
-                Button {
-                    withAnimation(.smooth) { isFullscreen = false }
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
+                HStack(spacing: 10) {
+                    Spacer()
+                    zoomButton
+                    closeButton
                 }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: Circle())
-                .padding(12)
-                .accessibilityLabel("Close full screen")
+                .padding(.horizontal, 16)
+                .padding(.bottom, 4)
             }
         }
         .toolbar(isFullscreen ? .hidden : .automatic, for: .tabBar)
         .toolbar(isFullscreen ? .hidden : .automatic, for: .navigationBar)
-        .statusBarHidden(isFullscreen)
         .onChange(of: renderKey) { refresh() }
         .onChange(of: kind) { selectDefaults() }
         .onAppear { selectDefaults() }
@@ -212,7 +209,7 @@ struct FractalView: View {
     /// 3D: turn toward the tapped surface point, then fly straight at it.
     private func startAutoDolly(at point: CGPoint) {
         let rp = ray3DParams
-        guard let hit = Fractal3D.cast(rp, size: size, at: point) else { return }
+        let hit = Fractal3D.cast(rp, size: size, at: point) ?? target
         let camPos = Fractal3D.cameraPosition(rp)
         autoZoomTask = Task { @MainActor in
             let start = target
@@ -248,6 +245,44 @@ struct FractalView: View {
         dist = d
         yaw = atan2(v.x, v.z)
         pitch = asin(max(-1, min(1, v.y / d)))
+    }
+
+    // MARK: Buttons
+
+    private var closeButton: some View {
+        Button {
+            withAnimation(.smooth) { isFullscreen = false }
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Circle())
+        .accessibilityLabel("Close full screen")
+    }
+
+    /// Zooms in on the middle of the view until tapped again (or until you drag or pinch).
+    private var zoomButton: some View {
+        let running = autoZoomTask != nil
+        return Button {
+            if autoZoomTask != nil {
+                stopMotion()
+            } else {
+                startAutoZoom(at: CGPoint(x: size.width / 2, y: size.height / 2))
+            }
+        } label: {
+            Image(systemName: running ? "pause.fill" : "plus.magnifyingglass")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 44)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(running ? .regular.tint(accent).interactive() : .regular.interactive(), in: Capsule())
+        .accessibilityLabel(running ? "Stop zooming" : "Zoom in")
     }
 
     // MARK: Canvas
@@ -312,6 +347,9 @@ struct FractalView: View {
                     .accessibilityLabel("Full screen")
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                if !isFullscreen { zoomButton.padding(10) }
+            }
             .clipShape(.rect(cornerRadius: isFullscreen ? 0 : 28))
             .glassEffect(isFullscreen ? .identity : .regular, in: .rect(cornerRadius: isFullscreen ? 0 : 28))
             .ignoresSafeArea(isFullscreen ? .all : [])
@@ -356,14 +394,11 @@ struct FractalView: View {
                     }
                     .onEnded { _ in scaleOrigin = nil; distOrigin = nil }
             )
-            // Tap to stop coasting or auto-zoom; double-tap a point to zoom into it.
+            // Tap to catch coasting.
             .simultaneousGesture(
                 SpatialTapGesture(count: 1).onEnded { _ in
-                    if inertia.running || autoZoomTask != nil { stopMotion() }
+                    if inertia.running { inertia.stop() }
                 }
-            )
-            .simultaneousGesture(
-                SpatialTapGesture(count: 2).onEnded { value in startAutoZoom(at: value.location) }
             )
     }
 
@@ -483,8 +518,8 @@ struct FractalView: View {
                         .frame(width: 52, alignment: .trailing)
                 }
                 Text(kind.style == .ray3D
-                     ? "Drag to rotate · pinch to move closer · double-tap a point to fly into it"
-                     : "Drag to pan · pinch to zoom · double-tap a point to zoom into it · tap to stop")
+                     ? "Drag to rotate · pinch to move closer · ⌕ flies in until stopped"
+                     : "Drag to pan · pinch to zoom · ⌕ zooms in on the center until stopped")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
