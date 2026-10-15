@@ -5,6 +5,9 @@ enum FractalKind: String, CaseIterable, Identifiable {
     case tricorn = "Tricorn", multibrot = "Multibrot", quartic = "Quartic"
     case celtic = "Celtic", perpendicular = "Perpendicular", phoenix = "Phoenix"
     case newton = "Newton", carpet = "Carpet", sierpinski = "Sierpinski"
+    case quintic = "Quintic", cubicShip = "Cubic Ship", burningJulia = "Burning Julia"
+    case lambda = "Lambda", magnet = "Magnet", inverse = "Inverse"
+    case cantorDust = "Cantor Dust", vicsek = "Vicsek"
     var id: String { rawValue }
 
     var defaultCenter: Center {
@@ -12,7 +15,9 @@ enum FractalKind: String, CaseIterable, Identifiable {
         case .mandelbrot, .celtic: return Center(x: -0.5, y: 0)
         case .burningShip: return Center(x: -0.5, y: -0.5)
         case .perpendicular: return Center(x: -0.25, y: 0)
-        case .carpet, .sierpinski: return Center(x: 0.5, y: 0.5)
+        case .carpet, .sierpinski, .cantorDust, .vicsek: return Center(x: 0.5, y: 0.5)
+        case .lambda: return Center(x: 1.5, y: 0)
+        case .magnet: return Center(x: 1, y: 0)
         default: return Center(x: 0, y: 0)
         }
     }
@@ -24,8 +29,10 @@ enum FractalKind: String, CaseIterable, Identifiable {
 
     var defaultScale: CGFloat {
         switch self {
-        case .carpet, .sierpinski: return 300
+        case .carpet, .sierpinski, .cantorDust, .vicsek: return 300
         case .phoenix: return 150
+        case .lambda: return 80
+        case .magnet: return 60
         default: return 110
         }
     }
@@ -33,8 +40,9 @@ enum FractalKind: String, CaseIterable, Identifiable {
     /// Degree of the iterated map, used for smooth coloring.
     var degree: Double {
         switch self {
-        case .multibrot: return 3
+        case .multibrot, .cubicShip: return 3
         case .quartic: return 4
+        case .quintic: return 5
         default: return 2
         }
     }
@@ -42,13 +50,15 @@ enum FractalKind: String, CaseIterable, Identifiable {
     /// How quickly the palette cycles with the iteration count.
     var colorFrequency: Double {
         switch self {
-        case .carpet, .sierpinski: return 0.12
+        case .carpet, .sierpinski, .cantorDust, .vicsek: return 0.12
         default: return 0.035
         }
     }
 
     /// Structural fractals have a fixed depth; no point scaling iterations with zoom.
-    var isStructural: Bool { self == .carpet || self == .sierpinski }
+    var isStructural: Bool { self == .carpet || self == .sierpinski || self == .cantorDust || self == .vicsek }
+
+    var usesJuliaConstant: Bool { self == .julia || self == .burningJulia }
 }
 
 enum FractalPalette: String, CaseIterable, Identifiable {
@@ -73,9 +83,10 @@ enum FractalPalette: String, CaseIterable, Identifiable {
     /// repeating in log-scale bands so the filaments keep their contrast.
     private static let deepBlueStops: [(t: Double, r: Double, g: Double, b: Double)] = [
         (0.00, 0.00, 0.00, 0.00),
-        (0.35, 0.00, 0.00, 0.30),
-        (0.68, 0.03, 0.04, 0.82),
-        (0.86, 0.40, 0.50, 1.00),
+        (0.30, 0.00, 0.00, 0.28),
+        (0.55, 0.02, 0.04, 0.78),
+        (0.75, 0.35, 0.50, 1.00),
+        (0.90, 0.80, 0.88, 1.00),
         (1.00, 1.00, 1.00, 1.00),
     ]
 
@@ -93,7 +104,10 @@ enum FractalPalette: String, CaseIterable, Identifiable {
     /// Color for a smooth escape-time value.
     func color(forMu mu: Double, frequency: Double) -> (UInt8, UInt8, UInt8) {
         if self == .deepBlue {
-            return gradient(max(0, log2(max(mu, 0) + 1) - 1) / 5, brightness: 1)
+            // Wider bands, and an ease-out curve so more of each band is pale: the glow fades to white
+            // over a larger area as the boundary gets closer.
+            let v = max(0, log2(max(mu, 0) + 1) - 1) / 5.5
+            return gradient(pow(v - floor(v), 0.65), brightness: 1)
         }
         return color(at: mu * frequency)
     }
@@ -160,16 +174,23 @@ enum FractalRenderer {
     /// Smooth escape time, or -1 for points that never escape.
     static func escape(_ p: FractalParams, x: Double, y: Double) -> Double {
         switch p.kind {
-        case .carpet: return carpet(x, y, p.maxIter)
+        case .carpet, .cantorDust, .vicsek: return ternary(p.kind, x, y, p.maxIter)
         case .sierpinski: return sierpinski(x, y, p.maxIter)
+        case .magnet: return magnet(x, y, p.maxIter)
         default: break
         }
 
         var zr = 0.0, zi = 0.0, cr = x, ci = y
         var pr = 0.0, pi = 0.0 // previous z, for Phoenix
         switch p.kind {
-        case .julia:
+        case .julia, .burningJulia:
             (zr, zi, cr, ci) = (x, y, p.juliaC.re, p.juliaC.im)
+        case .lambda:
+            zr = 0.5
+        case .inverse:
+            let d = x * x + y * y
+            if d == 0 { return -1 }
+            (cr, ci) = (x / d, -y / d)
         case .phoenix:
             (zr, zi, cr, ci) = (x, y, 0.5667, 0)
         case .mandelbrot:
@@ -190,10 +211,25 @@ enum FractalRenderer {
             case .mandelbrot, .julia:
                 zi = 2 * zr * zi + ci
                 zr = r2 - i2 + cr
-            case .burningShip:
+            case .burningShip, .burningJulia:
                 let a = abs(zr), b = abs(zi)
                 zi = 2 * a * b + ci
                 zr = a * a - b * b + cr
+            case .cubicShip:
+                let a = abs(zr), b = abs(zi)
+                zi = b * (3 * a * a - b * b) + ci
+                zr = a * (a * a - 3 * b * b) + cr
+            case .quintic:
+                let ar = r2 - i2, ai = 2 * zr * zi // z²
+                let br = ar * ar - ai * ai, bi = 2 * ar * ai // z⁴
+                let nr = br * zr - bi * zi + cr
+                zi = br * zi + bi * zr + ci
+                zr = nr
+            case .lambda:
+                // z ← c·z·(1 − z)
+                let wr = zr - r2 + i2, wi = zi - 2 * zr * zi
+                zr = cr * wr - ci * wi
+                zi = cr * wi + ci * wr
             case .tricorn:
                 zi = -2 * zr * zi + ci
                 zr = r2 - i2 + cr
@@ -226,15 +262,39 @@ enum FractalRenderer {
         return Double(i) + 1 - log2(0.5 * log(m)) / log2(p.kind.degree)
     }
 
-    /// Sierpinski carpet: holes are colored by the level they appear at.
-    private static func carpet(_ x0: Double, _ y0: Double, _ maxIter: Int) -> Double {
+    /// Base-3 self-similar sets (carpet, Cantor dust, Vicsek). Removed cells are colored by the level they appear at.
+    private static func ternary(_ kind: FractalKind, _ x0: Double, _ y0: Double, _ maxIter: Int) -> Double {
         guard x0 >= 0, x0 < 1, y0 >= 0, y0 < 1 else { return -1 }
         var x = x0, y = y0
         for level in 0..<min(maxIter, 30) { // ×3 isn't exact in binary; deeper levels are noise
             x *= 3; y *= 3
             let ix = floor(x), iy = floor(y)
-            if ix == 1 && iy == 1 { return Double(level) }
+            let removed: Bool
+            switch kind {
+            case .cantorDust: removed = ix == 1 || iy == 1
+            case .vicsek: removed = ix != 1 && iy != 1
+            default: removed = ix == 1 && iy == 1 // carpet
+            }
+            if removed { return Double(level) }
             x -= ix; y -= iy
+        }
+        return -1
+    }
+
+    /// Magnet fractal (type I): z ← ((z² + c − 1) / (2z + c − 2))². Points that settle on 1 are inside.
+    private static func magnet(_ cr: Double, _ ci: Double, _ maxIter: Int) -> Double {
+        var zr = 0.0, zi = 0.0
+        for i in 0..<maxIter {
+            let nr = zr * zr - zi * zi + cr - 1, ni = 2 * zr * zi + ci
+            let dr = 2 * zr + cr - 2, di = 2 * zi + ci
+            let d = dr * dr + di * di
+            if d == 0 { return -1 }
+            let qr = (nr * dr + ni * di) / d, qi = (ni * dr - nr * di) / d
+            zr = qr * qr - qi * qi
+            zi = 2 * qr * qi
+            let m = zr * zr + zi * zi
+            if m > 256 { return Double(i) + 1 - log2(0.5 * log(m)) }
+            if (zr - 1) * (zr - 1) + zi * zi < 1e-8 { return -1 }
         }
         return -1
     }
@@ -414,12 +474,15 @@ struct FractalView: View {
                 }
                 .onEnded { _ in scaleOrigin = nil }
         )
-        // Touching the view stops any coasting or auto-zoom.
+        // Tap to stop coasting or auto-zoom; double-tap a point to zoom into it.
         .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in if inertia.running || autoZoomTask != nil { stopMotion() } }
+            SpatialTapGesture(count: 1).onEnded { _ in
+                if inertia.running || autoZoomTask != nil { stopMotion() }
+            }
         )
-        .onTapGesture(count: 3) { location in startAutoZoom(at: location) }
+        .simultaneousGesture(
+            SpatialTapGesture(count: 2).onEnded { value in startAutoZoom(at: value.location) }
+        )
     }
 
     private var kindChips: some View {
@@ -454,7 +517,7 @@ struct FractalView: View {
                 }
                 .pickerStyle(.menu)
                 .tint(accent)
-                if kind == .julia {
+                if kind.usesJuliaConstant {
                     Picker("c", selection: $juliaIndex) {
                         ForEach(Self.juliaPresets.indices, id: \.self) { i in
                             let c = Self.juliaPresets[i]
@@ -492,7 +555,7 @@ struct FractalView: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 52, alignment: .trailing)
             }
-            Text("Triple-tap a point to zoom into it · touch to stop")
+            Text("Double-tap a point to zoom into it · tap to stop")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
