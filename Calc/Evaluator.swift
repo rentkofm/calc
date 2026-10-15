@@ -12,6 +12,19 @@ typealias Expr = (Double, Double) -> Double
 
 struct ParseError: Error {}
 
+/// A user-defined function such as f(x) = x² + 1. Parameters arrive as `(x, y)`.
+struct UserFunction {
+    var arity: Int
+    var body: Expr
+}
+
+/// Names a graph line can refer to besides the built-ins.
+struct GraphScope {
+    var variables: [String: Double] = [:]
+    var functions: [String: UserFunction] = [:]
+    var bound: [String: Parser.Slot] = [:]
+}
+
 /// Recursive-descent parser that compiles an expression into a closure of `x` and `y`.
 /// Supports + − × ÷ ^ ! %, parentheses, implicit multiplication, constants (π, e, φ, τ, ∞),
 /// the variable `x`, scientific functions, multi-argument functions (nCr, gcd, min, …) and
@@ -36,14 +49,20 @@ struct Parser {
     private let angle: AngleMode
     private let allowY: Bool
     private let bound: [String: Slot]
+    private let variables: [String: Double]
+    private let functions: [String: UserFunction]
 
-    private init(chars: [Character], angle: AngleMode, allowY: Bool, bound: [String: Slot]) {
+    private init(chars: [Character], angle: AngleMode, allowY: Bool, bound: [String: Slot],
+                 variables: [String: Double] = [:], functions: [String: UserFunction] = [:]) {
         c = chars
         self.angle = angle
         self.allowY = allowY
         self.bound = bound
+        self.variables = variables
+        self.functions = functions
         deg = angle == .degrees
-        names = Parser.callNames + Parser.constantNames + (allowY ? ["y"] : []) + Array(bound.keys)
+        names = Parser.callNames + Parser.constantNames + (allowY ? ["y"] : [])
+            + Array(bound.keys) + Array(variables.keys) + Array(functions.keys)
     }
 
     private static func normalize(_ text: String) -> [Character] {
@@ -51,7 +70,7 @@ struct Parser {
         let replacements = [
             ("×", "*"), ("÷", "/"), ("−", "-"), ("·", "*"), ("π", "pi"), ("√", "sqrt"), ("∛", "cbrt"),
             ("Σ", "sum"), ("∏", "prod"), ("∫", "int"), ("∞", "inf"), ("φ", "phi"), ("τ", "tau"),
-            ("nCr", "ncr"), ("nPr", "npr"),
+            ("nCr", "ncr"), ("nPr", "npr"), ("≤", "<="), ("≥", ">="),
         ]
         for (a, b) in replacements { s = s.replacingOccurrences(of: a, with: b) }
         return Array(s.filter { !$0.isWhitespace })
@@ -62,13 +81,16 @@ struct Parser {
         return { e($0, 0) }
     }
 
-    static func compile2(_ text: String, angle: AngleMode, allowY: Bool) throws -> Expr {
-        try compile(chars: normalize(text), angle: angle, allowY: allowY, bound: [:])
+    static func compile2(_ text: String, angle: AngleMode, allowY: Bool, scope: GraphScope = GraphScope()) throws -> Expr {
+        try compile(chars: normalize(text), angle: angle, allowY: allowY, bound: scope.bound,
+                    variables: scope.variables, functions: scope.functions)
     }
 
     private static func compile(chars: [Character], angle: AngleMode, allowY: Bool,
-                                bound: [String: Slot]) throws -> Expr {
-        var p = Parser(chars: chars, angle: angle, allowY: allowY, bound: bound)
+                                bound: [String: Slot], variables: [String: Double] = [:],
+                                functions: [String: UserFunction] = [:]) throws -> Expr {
+        var p = Parser(chars: chars, angle: angle, allowY: allowY, bound: bound,
+                       variables: variables, functions: functions)
         guard !p.c.isEmpty else { throw ParseError() }
         let f = try p.expression()
         guard p.i == p.c.count else { throw ParseError() }
@@ -146,8 +168,85 @@ struct Parser {
             if peek == ")" { i += 1 } else if i < c.count { throw ParseError() } // auto-close at end
             return f
         }
+        if ch == "{" { return try piecewise() }
         if ch.isLetter { return try identifier() }
         throw ParseError()
+    }
+
+    /// `{cond: value, cond: value, otherwise}`
+    private mutating func piecewise() throws -> Expr {
+        i += 1
+        var branches: [(cond: Expr?, value: Expr)] = []
+        while true {
+            let save = i
+            var cond: Expr?
+            if let parsed = try? condition(), peek == ":" {
+                i += 1
+                cond = parsed
+            } else {
+                i = save
+            }
+            let value = try expression()
+            branches.append((cond, value))
+            if peek == "," { i += 1; continue }
+            break
+        }
+        if peek == "}" { i += 1 } else if i < c.count { throw ParseError() }
+        let all = branches
+        return { x, y in
+            for branch in all {
+                if let cond = branch.cond {
+                    if cond(x, y) != 0 { return branch.value(x, y) }
+                } else {
+                    return branch.value(x, y)
+                }
+            }
+            return .nan
+        }
+    }
+
+    /// `a < b <= c …` evaluating to 1 or 0.
+    private mutating func condition() throws -> Expr {
+        var operands: [Expr] = [try expression()]
+        var ops: [String] = []
+        while let op = comparator() {
+            ops.append(op)
+            operands.append(try expression())
+        }
+        guard !ops.isEmpty else { throw ParseError() }
+        let o = operands, p = ops
+        return { x, y in
+            for k in 0..<p.count {
+                let a = o[k](x, y), b = o[k + 1](x, y)
+                let ok: Bool
+                switch p[k] {
+                case "<": ok = a < b
+                case ">": ok = a > b
+                case "<=": ok = a <= b
+                case ">=": ok = a >= b
+                default: ok = abs(a - b) < 1e-9
+                }
+                if !ok { return 0 }
+            }
+            return 1
+        }
+    }
+
+    private mutating func comparator() -> String? {
+        guard let ch = peek else { return nil }
+        if ch == "<" || ch == ">" {
+            if i + 1 < c.count, c[i + 1] == "=" {
+                i += 2
+                return String(ch) + "="
+            }
+            i += 1
+            return String(ch)
+        }
+        if ch == "=" {
+            i += 1
+            return "="
+        }
+        return nil
     }
 
     private mutating func number() throws -> Expr {
@@ -173,6 +272,16 @@ struct Parser {
         i += name.count
         if let slot = bound[name] {
             return slot == .x ? { x, _ in x } : { _, y in y }
+        }
+        if let value = variables[name] { return { _, _ in value } }
+        if let fn = functions[name] {
+            let args = try argumentList()
+            guard args.count == fn.arity, args.count >= 1, args.count <= 2 else { throw ParseError() }
+            let body = fn.body
+            let a = args[0]
+            if args.count == 1 { return { x, y in body(a(x, y), 0) } }
+            let b = args[1]
+            return { x, y in body(a(x, y), b(x, y)) }
         }
         switch name {
         case "x": return { x, _ in x }
@@ -251,10 +360,15 @@ struct Parser {
         var inner = bound
         inner[varName] = slot
 
-        let body = try Parser.compile(chars: pieces[0], angle: angle, allowY: allowY, bound: inner)
-        let lo = try Parser.compile(chars: pieces[2], angle: angle, allowY: allowY, bound: bound)
+        let body = try Parser.compile(chars: pieces[0], angle: angle, allowY: allowY, bound: inner,
+                                      variables: variables, functions: functions)
+        let lo = try Parser.compile(chars: pieces[2], angle: angle, allowY: allowY, bound: bound,
+                                    variables: variables, functions: functions)
         var hi: Expr = { _, _ in 0 }
-        if needed == 4 { hi = try Parser.compile(chars: pieces[3], angle: angle, allowY: allowY, bound: bound) }
+        if needed == 4 {
+            hi = try Parser.compile(chars: pieces[3], angle: angle, allowY: allowY, bound: bound,
+                                    variables: variables, functions: functions)
+        }
         let upper = hi
 
         switch name {
@@ -278,6 +392,76 @@ struct Parser {
                 Parser.limit(lo(x, y)) { t in slot == .y ? body(x, t) : body(t, y) }
             }
         }
+    }
+
+    // MARK: Name scanning (used by the graph to find sliders and parameters)
+
+    static func knownNames(scope: GraphScope = GraphScope(), allowY: Bool = true, extra: [String] = []) -> [String] {
+        callNames + constantNames + (allowY ? ["y"] : []) + Array(scope.variables.keys)
+            + Array(scope.functions.keys) + Array(scope.bound.keys) + extra
+    }
+
+    /// The identifiers in `text`, longest-match first; unrecognized letters come back one at a time.
+    static func tokens(_ text: String, known: [String]) -> [String] {
+        let chars = normalize(text)
+        var out: [String] = []
+        var i = 0
+        while i < chars.count {
+            let ch = chars[i]
+            if ch.isLetter {
+                let rest = String(chars[i...])
+                if let name = known.filter({ rest.hasPrefix($0) }).max(by: { $0.count < $1.count }) {
+                    out.append(name)
+                    i += name.count
+                } else {
+                    out.append(String(ch))
+                    i += 1
+                }
+            } else {
+                i += 1
+            }
+        }
+        return out
+    }
+
+    /// Single lowercase letters in `text` that aren't known names, ignoring the bound variable of sum/prod/int/diff/lim.
+    static func unknownLetters(_ text: String, known: [String]) -> Set<String> {
+        let knownSet = Set(known)
+        let bindings = binderVariables(text)
+        return Set(tokens(text, known: known).filter {
+            $0.count == 1 && !knownSet.contains($0) && !bindings.contains($0) && ($0.first?.isASCII ?? false)
+                && ($0.first?.isLowercase ?? false)
+        })
+    }
+
+    private static func binderVariables(_ text: String) -> Set<String> {
+        let chars = normalize(text)
+        var found = Set<String>()
+        for name in binderNames {
+            let pattern = Array(name + "(")
+            var i = 0
+            while i + pattern.count <= chars.count {
+                if Array(chars[i..<(i + pattern.count)]) == pattern {
+                    var depth = 0, commas = 0
+                    var piece: [Character] = []
+                    var j = i + pattern.count
+                    while j < chars.count {
+                        let ch = chars[j]
+                        if ch == "(" { depth += 1 }
+                        else if ch == ")" { if depth == 0 { break }; depth -= 1 }
+                        else if ch == "," && depth == 0 { commas += 1; if commas == 2 { break }; j += 1; continue }
+                        if commas == 1 { piece.append(ch) }
+                        j += 1
+                    }
+                    let v = String(piece)
+                    if !v.isEmpty { found.insert(v) }
+                    i = j
+                } else {
+                    i += 1
+                }
+            }
+        }
+        return found
     }
 
     // MARK: Math

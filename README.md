@@ -3,7 +3,8 @@
 A minimal SwiftUI calculator for iOS 26 with Liquid Glass.
 
 - Arithmetic plus scientific functions (trig, inverse trig, hyperbolic, ln/log, roots, factorial, powers, π, e) with a DEG/RAD toggle and history
-- Graphing calculator with up to four functions, pan and pinch-zoom
+- Graphing: functions, equations, inequalities, parametric, polar and piecewise graphs, named variables and functions, sliders, points of interest, tables with regression, saved graphs; plus 3D and complex-plane graphs
+- Extras: unit converter, fractals, formula reference and statistics tools
 - Unit converter covering 10 categories
 - Settings for theme (system, light, dark), accent color, angle unit, precision, haptics and grid
 - Dark mode
