@@ -278,7 +278,7 @@ extension FractalRenderer {
                 ? perturb(info.orbit, d0: (ox, oy), dc: (0, 0), maxIter: p.maxIter)
                 : perturb(info.orbit, d0: (0, 0), dc: (ox, oy), maxIter: p.maxIter)
             guard mu >= 0 else { return (0, 0, 0) }
-            return p.palette.color(at: mu * p.kind.colorFrequency)
+            return p.palette.color(forMu: mu, frequency: p.kind.colorFrequency)
         }
     }
 

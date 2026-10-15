@@ -52,7 +52,7 @@ enum FractalKind: String, CaseIterable, Identifiable {
 }
 
 enum FractalPalette: String, CaseIterable, Identifiable {
-    case classic = "Classic", fire = "Fire", ocean = "Ocean", ultraviolet = "Ultraviolet"
+    case deepBlue = "Deep Blue", classic = "Classic", fire = "Fire", ocean = "Ocean", ultraviolet = "Ultraviolet"
     case forest = "Forest", mono = "Mono"
     var id: String { rawValue }
 
@@ -65,10 +65,41 @@ enum FractalPalette: String, CaseIterable, Identifiable {
         case .ultraviolet: return ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [2, 1, 0], [0.5, 0.2, 0.25])
         case .forest: return ([0.2, 0.5, 0.2], [0.2, 0.4, 0.2], [1, 1, 1], [0, 0.1, 0.2])
         case .mono: return ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [1, 1, 1], [0, 0, 0])
+        case .deepBlue: return ([0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]) // gradient palette, see below
         }
     }
 
+    /// The look from the classic zoom videos: black → deep blue → white glow at the boundary,
+    /// repeating in log-scale bands so the filaments keep their contrast.
+    private static let deepBlueStops: [(t: Double, r: Double, g: Double, b: Double)] = [
+        (0.00, 0.00, 0.00, 0.00),
+        (0.35, 0.00, 0.00, 0.30),
+        (0.68, 0.03, 0.04, 0.82),
+        (0.86, 0.40, 0.50, 1.00),
+        (1.00, 1.00, 1.00, 1.00),
+    ]
+
+    private func gradient(_ t: Double, brightness: Double) -> (UInt8, UInt8, UInt8) {
+        let u = t - floor(t)
+        let stops = Self.deepBlueStops
+        var i = 0
+        while i < stops.count - 2 && u > stops[i + 1].t { i += 1 }
+        let a = stops[i], b = stops[i + 1]
+        let f = (u - a.t) / (b.t - a.t)
+        func ch(_ x: Double, _ y: Double) -> UInt8 { UInt8(min(max((x + (y - x) * f) * brightness, 0), 1) * 255) }
+        return (ch(a.r, b.r), ch(a.g, b.g), ch(a.b, b.b))
+    }
+
+    /// Color for a smooth escape-time value.
+    func color(forMu mu: Double, frequency: Double) -> (UInt8, UInt8, UInt8) {
+        if self == .deepBlue {
+            return gradient(max(0, log2(max(mu, 0) + 1) - 1) / 5, brightness: 1)
+        }
+        return color(at: mu * frequency)
+    }
+
     func color(at t: Double, brightness: Double = 1) -> (UInt8, UInt8, UInt8) {
+        if self == .deepBlue { return gradient(t, brightness: brightness) }
         let k = coefficients
         func channel(_ i: Int) -> UInt8 {
             let v = k.a[i] + k.b[i] * cos(2 * Double.pi * (k.c[i] * t + k.d[i]))
@@ -97,7 +128,7 @@ enum FractalRenderer {
             if p.kind == .newton { return newton(p, x: x, y: y) }
             let mu = escape(p, x: x, y: y)
             guard mu >= 0 else { return (0, 0, 0) }
-            return p.palette.color(at: mu * p.kind.colorFrequency)
+            return p.palette.color(forMu: mu, frequency: p.kind.colorFrequency)
         }
     }
 
@@ -231,7 +262,7 @@ struct FractalView: View {
     @Environment(\.displayScale) private var displayScale
 
     @State private var kind: FractalKind = .mandelbrot
-    @State private var palette: FractalPalette = .classic
+    @State private var palette: FractalPalette = .deepBlue
     @State private var juliaIndex = 0
     @State private var detail = 150.0
     @State private var zoomSpeed = 1.0 // doublings per second
