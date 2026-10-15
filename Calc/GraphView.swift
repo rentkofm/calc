@@ -12,7 +12,7 @@ struct SavedGraph: Identifiable, Codable {
     var name: String
     var date: Date
     var rows: [GraphRow]
-    var sliders: [String: SliderSpec]
+    var sliders: [String: GraphSlider]
     var cx: Double
     var cy: Double
     var scale: Double
@@ -44,7 +44,7 @@ struct GraphView: View {
     @AppStorage("savedGraphs") private var savedData = Data()
 
     @State private var rows = [GraphRow(text: "sin(x)", colorHex: GraphView.color(for: 0).hex)]
-    @State private var sliders: [String: SliderSpec] = [:]
+    @State private var sliders: [String: GraphSlider] = [:]
     @State private var scene = GraphScene()
     @State private var sceneVersion = 0
     @State private var pois: [PointOfInterest] = []
@@ -105,7 +105,7 @@ struct GraphView: View {
 
     private func recompile() {
         let new = GraphEngine.compile(rows: rows, sliders: sliders)
-        for name in new.freeLetters where sliders[name] == nil { sliders[name] = SliderSpec() }
+        for name in new.freeLetters where sliders[name] == nil { sliders[name] = GraphSlider() }
         scene = new
         sceneVersion += 1
     }
@@ -697,7 +697,7 @@ struct GraphView: View {
             VStack(spacing: 0) {
                 ForEach(scene.freeLetters, id: \.self) { name in
                     SliderRow(name: name,
-                              spec: Binding(get: { sliders[name] ?? SliderSpec() }, set: { sliders[name] = $0 }),
+                              spec: Binding(get: { sliders[name] ?? GraphSlider() }, set: { sliders[name] = $0 }),
                               playing: animating.contains(name),
                               onPlay: { toggleAnimation(name) })
                     Divider()
@@ -817,7 +817,7 @@ private struct RangeMenu: View {
 
 private struct SliderRow: View {
     let name: String
-    @Binding var spec: SliderSpec
+    @Binding var spec: GraphSlider
     var playing: Bool
     var onPlay: () -> Void
 

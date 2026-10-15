@@ -197,9 +197,17 @@ private struct DistributionTool: View {
 
     @State private var kind: Kind = .normal
     @State private var normalMode: NormalMode = .below
-    @State private var mean = "0", sd = "1", x = "1", a = "-1", b = "1", p = "0.975"
-    @State private var n = "10", prob = "0.5", k = "5"
-    @State private var lambda = "3", kPoisson = "2"
+    @State private var mean = "0"
+    @State private var sd = "1"
+    @State private var x = "1"
+    @State private var a = "-1"
+    @State private var b = "1"
+    @State private var p = "0.975"
+    @State private var n = "10"
+    @State private var prob = "0.5"
+    @State private var k = "5"
+    @State private var lambda = "3"
+    @State private var kPoisson = "2"
 
     var body: some View {
         Form {
@@ -304,9 +312,14 @@ private struct IntervalTool: View {
     }
 
     @State private var kind: Kind = .mean
-    @State private var xbar = "", s = "", n = "", level = "95"
-    @State private var successes = "", trials = ""
-    @State private var mu0 = "", sigma = ""
+    @State private var xbar = ""
+    @State private var s = ""
+    @State private var n = ""
+    @State private var level = "95"
+    @State private var successes = ""
+    @State private var trials = ""
+    @State private var mu0 = ""
+    @State private var sigma = ""
 
     var body: some View {
         Form {

@@ -20,7 +20,7 @@ struct GraphRow: Identifiable, Codable, Equatable {
     }
 }
 
-struct SliderSpec: Codable, Equatable {
+struct GraphSlider: Codable, Equatable {
     var value: Double = 1
     var lo: Double = -10
     var hi: Double = 10
@@ -232,7 +232,7 @@ enum GraphEngine {
         return (a.isNaN && b.isNaN) || a == b
     }
 
-    static func compile(rows: [GraphRow], sliders: [String: SliderSpec]) -> GraphScene {
+    static func compile(rows: [GraphRow], sliders: [String: GraphSlider]) -> GraphScene {
         var scene = GraphScene()
         var entries: [Entry] = []
         for row in rows {
