@@ -104,8 +104,7 @@ enum ComplexRenderer {
 
 /// The region of the plane an image was rendered for.
 struct Viewport: Equatable {
-    var cx: Double = 0
-    var cy: Double = 0
+    var center = Center(x: 0, y: 0)
     var scale: Double = 1
     var size: CGSize = .zero
 }
@@ -182,7 +181,7 @@ final class ProgressiveRenderer {
 struct ViewportImage: View {
     let image: CGImage?
     let viewport: Viewport
-    let center: CGPoint
+    let center: Center
     let scale: CGFloat
     let size: CGSize
 
@@ -190,12 +189,13 @@ struct ViewportImage: View {
         if let image, viewport.scale > 0 {
             let k = scale / CGFloat(viewport.scale)
             if k > 1e-3, k < 500 {
+                let d = viewport.center.difference(from: center)
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .interpolation(.medium)
                     .frame(width: viewport.size.width * k, height: viewport.size.height * k)
-                    .position(x: size.width / 2 + CGFloat(viewport.cx - Double(center.x)) * scale,
-                              y: size.height / 2 - CGFloat(viewport.cy - Double(center.y)) * scale)
+                    .position(x: size.width / 2 + CGFloat(d.dx) * scale,
+                              y: size.height / 2 - CGFloat(d.dy) * scale)
             }
         }
     }

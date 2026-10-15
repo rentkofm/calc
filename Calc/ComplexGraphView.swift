@@ -266,7 +266,7 @@ struct ComplexGraphView: View {
     private func refresh() {
         guard let f = function else { renderer.clear(); return }
         let (sz, c, sc) = (size, center, scale)
-        renderer.request(viewport: Viewport(cx: Double(c.x), cy: Double(c.y), scale: Double(sc), size: sz),
+        renderer.request(viewport: Viewport(center: Center(x: Double(c.x), y: Double(c.y)), scale: Double(sc), size: sz),
                          displayScale: displayScale) { cell in
             ComplexRenderer.render(f, size: sz, center: c, scale: sc, cell: cell)
         }
@@ -277,7 +277,7 @@ struct ComplexGraphView: View {
     private var plane: some View {
         ZStack {
             ViewportImage(image: renderer.image, viewport: renderer.viewport,
-                          center: center, scale: scale, size: size)
+                          center: Center(x: Double(center.x), y: Double(center.y)), scale: scale, size: size)
             Canvas { ctx, size in drawAxes(ctx, size) }
             probeOverlay
         }

@@ -7,15 +7,20 @@ enum FractalKind: String, CaseIterable, Identifiable {
     case newton = "Newton", carpet = "Carpet", sierpinski = "Sierpinski"
     var id: String { rawValue }
 
-    var defaultCenter: CGPoint {
+    var defaultCenter: Center {
         switch self {
-        case .mandelbrot, .celtic: return CGPoint(x: -0.5, y: 0)
-        case .burningShip: return CGPoint(x: -0.5, y: -0.5)
-        case .perpendicular: return CGPoint(x: -0.25, y: 0)
-        case .carpet, .sierpinski: return CGPoint(x: 0.5, y: 0.5)
-        default: return .zero
+        case .mandelbrot, .celtic: return Center(x: -0.5, y: 0)
+        case .burningShip: return Center(x: -0.5, y: -0.5)
+        case .perpendicular: return Center(x: -0.25, y: 0)
+        case .carpet, .sierpinski: return Center(x: 0.5, y: 0.5)
+        default: return Center(x: 0, y: 0)
         }
     }
+
+    /// Mandelbrot and Julia can zoom essentially without limit (arbitrary-precision reference orbit +
+    /// perturbation). The others iterate in plain doubles, which run out of precision around 1e13.
+    var supportsDeepZoom: Bool { self == .mandelbrot || self == .julia }
+    var maxScale: CGFloat { supportsDeepZoom ? 1e300 : 1e13 }
 
     var defaultScale: CGFloat {
         switch self {
@@ -76,7 +81,7 @@ enum FractalPalette: String, CaseIterable, Identifiable {
 struct FractalParams {
     var kind: FractalKind
     var palette: FractalPalette
-    var center: CGPoint
+    var center: Center
     var scale: CGFloat
     var maxIter: Int
     var juliaC: (re: Double, im: Double)
@@ -84,7 +89,8 @@ struct FractalParams {
 
 enum FractalRenderer {
     static func render(_ p: FractalParams, size: CGSize, cell: CGFloat) -> CGImage? {
-        let cx = Double(p.center.x), cy = Double(p.center.y), s = Double(p.scale)
+        if p.kind.supportsDeepZoom && p.scale > 1e9 { return renderDeep(p, size: size, cell: cell) }
+        let cx = p.center.doubleX, cy = p.center.doubleY, s = Double(p.scale)
         let hw = Double(size.width) / 2, hh = Double(size.height) / 2
         return Raster.image(size: size, cell: cell) { sx, sy in
             let x = cx + (sx - hw) / s, y = cy - (sy - hh) / s
@@ -229,11 +235,11 @@ struct FractalView: View {
     @State private var juliaIndex = 0
     @State private var detail = 150.0
     @State private var zoomSpeed = 1.0 // doublings per second
-    @State private var center = FractalKind.mandelbrot.defaultCenter
+    @State private var center: Center = FractalKind.mandelbrot.defaultCenter
     @State private var scale = FractalKind.mandelbrot.defaultScale
     @State private var size = CGSize(width: 320, height: 320)
     @State private var renderer = ProgressiveRenderer()
-    @State private var dragOrigin: CGPoint?
+    @State private var dragOrigin: Center?
     @State private var scaleOrigin: CGFloat?
     @State private var inertia = Inertia()
     @State private var autoZoomTask: Task<Void, Never>?
@@ -258,7 +264,7 @@ struct FractalView: View {
     private var maxIter: Int {
         if kind.isStructural { return 50 }
         let zoomBoost = 60 * max(0, log2(Double(scale / kind.defaultScale)))
-        return min(Int(detail + zoomBoost), 5000)
+        return min(Int(detail + zoomBoost), 100_000)
     }
 
     private var params: FractalParams {
@@ -271,20 +277,20 @@ struct FractalView: View {
         var palette: FractalPalette
         var juliaIndex: Int
         var detail: Double
-        var cx: Double, cy: Double, scale: Double
+        var center: Center
+        var scale: Double
         var size: CGSize
     }
 
     private var renderKey: RenderKey {
         RenderKey(kind: kind, palette: palette, juliaIndex: juliaIndex, detail: detail,
-                  cx: Double(center.x), cy: Double(center.y), scale: Double(scale), size: size)
+                  center: center, scale: Double(scale), size: size)
     }
 
     private func refresh() {
         let full = params
         let sz = size
-        renderer.request(viewport: Viewport(cx: Double(center.x), cy: Double(center.y),
-                                            scale: Double(scale), size: sz),
+        renderer.request(viewport: Viewport(center: center, scale: Double(scale), size: sz),
                          displayScale: displayScale) { cell in
             var p = full
             if cell > 2 { p.maxIter = min(p.maxIter, 800) } // keep the in-motion frames quick
@@ -309,13 +315,13 @@ struct FractalView: View {
     /// Zooms toward `point` at a constant exponential rate, easing the point to the middle of the view.
     private func startAutoZoom(at point: CGPoint) {
         stopMotion()
-        let target = CGPoint(x: center.x + (point.x - size.width / 2) / scale,
-                             y: center.y - (point.y - size.height / 2) / scale)
+        let target = center.moved(dx: Double((point.x - size.width / 2) / scale),
+                                  dy: -Double((point.y - size.height / 2) / scale))
         var screen = point
         Haptics.tap()
         autoZoomTask = Task { @MainActor in
             var last = ContinuousClock.now
-            while !Task.isCancelled && scale < 1e13 {
+            while !Task.isCancelled && scale < kind.maxScale {
                 try? await Task.sleep(for: .milliseconds(16))
                 if Task.isCancelled { return }
                 let now = ContinuousClock.now
@@ -325,8 +331,8 @@ struct FractalView: View {
                 screen.x += (size.width / 2 - screen.x) * ease
                 screen.y += (size.height / 2 - screen.y) * ease
                 scale *= CGFloat(pow(2, zoomSpeed * dt))
-                center = CGPoint(x: target.x - (screen.x - size.width / 2) / scale,
-                                 y: target.y + (screen.y - size.height / 2) / scale)
+                center = target.moved(dx: -Double((screen.x - size.width / 2) / scale),
+                                      dy: Double((screen.y - size.height / 2) / scale))
             }
             autoZoomTask = nil
         }
@@ -359,14 +365,13 @@ struct FractalView: View {
                 .onChanged { v in
                     if dragOrigin == nil { stopMotion(); dragOrigin = center }
                     let o = dragOrigin ?? center
-                    center = CGPoint(x: o.x - v.translation.width / scale,
-                                     y: o.y + v.translation.height / scale)
+                    center = o.moved(dx: -Double(v.translation.width / scale),
+                                     dy: Double(v.translation.height / scale))
                 }
                 .onEnded { v in
                     dragOrigin = nil
                     inertia.start(velocity: v.velocity) { dx, dy in
-                        center.x -= CGFloat(dx) / scale
-                        center.y += CGFloat(dy) / scale
+                        center = center.moved(dx: -dx / Double(scale), dy: dy / Double(scale))
                     }
                 }
         )
@@ -374,7 +379,7 @@ struct FractalView: View {
             MagnifyGesture()
                 .onChanged { v in
                     if scaleOrigin == nil { stopMotion(); scaleOrigin = scale }
-                    scale = min(max((scaleOrigin ?? scale) * v.magnification, 10), 1e13)
+                    scale = min(max((scaleOrigin ?? scale) * v.magnification, 10), kind.maxScale)
                 }
                 .onEnded { _ in scaleOrigin = nil }
         )
