@@ -566,7 +566,7 @@ struct FractalView: View {
                 if let spec = kind.detailSpec { sliderRow(spec, value: $detail) }
                 if let spec = kind.powerSpec { sliderRow(spec, value: $power) }
                 if kind.supportsMorph {
-                    sliderRow(SliderSpec(label: "Morph", range: -20...20, step: 0.05, defaultValue: kind.baseMorph), value: $morph)
+                    sliderRow(SliderSpec(label: "Morph", range: -4...4, step: 0.01, defaultValue: kind.baseMorph), value: $morph)
                     Text("Morph 0 = Mandelbrot form · 1 = Julia form · beyond 0–1 it extrapolates")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -574,8 +574,8 @@ struct FractalView: View {
                 }
                 if kind == .custom {
                     sliderRow(SliderSpec(label: "Coeff.", range: 0.2...3, step: 0.05, defaultValue: 1), value: $coef)
-                    sliderRow(SliderSpec(label: "c real", range: -40...40, step: 0.02, defaultValue: -0.8), value: $customRe)
-                    sliderRow(SliderSpec(label: "c imag", range: -40...40, step: 0.02, defaultValue: 0.156), value: $customIm)
+                    sliderRow(SliderSpec(label: "c real", range: -4...4, step: 0.01, defaultValue: -0.8), value: $customRe)
+                    sliderRow(SliderSpec(label: "c imag", range: -4...4, step: 0.01, defaultValue: 0.156), value: $customIm)
                 }
                 HStack(spacing: 12) {
                     Text("Auto-zoom")
