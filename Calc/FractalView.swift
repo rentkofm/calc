@@ -208,7 +208,7 @@ enum FractalRenderer {
             m = r2 + i2
             if m > 256 { break }
             switch p.kind {
-            case .mandelbrot, .julia:
+            case .mandelbrot, .julia, .inverse:
                 zi = 2 * zr * zi + ci
                 zr = r2 - i2 + cr
             case .burningShip, .burningJulia:
