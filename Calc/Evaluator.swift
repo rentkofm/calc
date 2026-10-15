@@ -7,6 +7,8 @@ enum AngleMode: String, CaseIterable, Identifiable {
 }
 
 typealias MathFn = (Double) -> Double
+/// Two-variable expression `(x, y)`, used by the graphing calculator.
+typealias Expr = (Double, Double) -> Double
 
 struct ParseError: Error {}
 
@@ -18,13 +20,13 @@ struct Parser {
         "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh",
         "ln", "log", "log2", "sqrt", "cbrt", "abs", "exp", "floor", "ceil", "round"
     ]
-    private static let names = functionNames + ["pi", "e", "x"]
-
+    private let names: [String]
     private let c: [Character]
     private var i = 0
     private let deg: Bool
 
-    private init(_ text: String, angle: AngleMode) {
+    private init(_ text: String, angle: AngleMode, allowY: Bool) {
+        names = Parser.functionNames + ["pi", "e", "x"] + (allowY ? ["y"] : [])
         var s = text
         for (a, b) in [("×", "*"), ("÷", "/"), ("−", "-"), ("·", "*"), ("π", "pi"), ("√", "sqrt"), ("∛", "cbrt")] {
             s = s.replacingOccurrences(of: a, with: b)
@@ -34,7 +36,12 @@ struct Parser {
     }
 
     static func compile(_ text: String, angle: AngleMode) throws -> MathFn {
-        var p = Parser(text, angle: angle)
+        let e = try compile2(text, angle: angle, allowY: false)
+        return { e($0, 0) }
+    }
+
+    static func compile2(_ text: String, angle: AngleMode, allowY: Bool) throws -> Expr {
+        var p = Parser(text, angle: angle, allowY: allowY)
         guard !p.c.isEmpty else { throw ParseError() }
         let f = try p.expression()
         guard p.i == p.c.count else { throw ParseError() }
@@ -45,28 +52,28 @@ struct Parser {
 
     private var peek: Character? { i < c.count ? c[i] : nil }
 
-    private mutating func expression() throws -> MathFn {
+    private mutating func expression() throws -> Expr {
         var lhs = try term()
         while let ch = peek, ch == "+" || ch == "-" {
             i += 1
             let rhs = try term()
             let l = lhs
-            lhs = ch == "+" ? { l($0) + rhs($0) } : { l($0) - rhs($0) }
+            lhs = ch == "+" ? { l($0, $1) + rhs($0, $1) } : { l($0, $1) - rhs($0, $1) }
         }
         return lhs
     }
 
-    private mutating func term() throws -> MathFn {
+    private mutating func term() throws -> Expr {
         var lhs = try unary()
         while let ch = peek {
             let l = lhs
             if ch == "*" || ch == "/" {
                 i += 1
                 let rhs = try unary()
-                lhs = ch == "*" ? { l($0) * rhs($0) } : { l($0) / rhs($0) }
+                lhs = ch == "*" ? { l($0, $1) * rhs($0, $1) } : { l($0, $1) / rhs($0, $1) }
             } else if ch == "(" || ch == "." || ch.isLetter || ch.isNumber {
                 let rhs = try unary() // implicit multiplication
-                lhs = { l($0) * rhs($0) }
+                lhs = { l($0, $1) * rhs($0, $1) }
             } else {
                 break
             }
@@ -74,36 +81,36 @@ struct Parser {
         return lhs
     }
 
-    private mutating func unary() throws -> MathFn {
+    private mutating func unary() throws -> Expr {
         if let ch = peek, ch == "-" || ch == "+" {
             i += 1
             let f = try unary()
-            return ch == "-" ? { -f($0) } : f
+            return ch == "-" ? { -f($0, $1) } : f
         }
         return try power()
     }
 
-    private mutating func power() throws -> MathFn {
+    private mutating func power() throws -> Expr {
         let base = try postfix()
         if peek == "^" {
             i += 1
             let exponent = try unary()
-            return { pow(base($0), exponent($0)) }
+            return { pow(base($0, $1), exponent($0, $1)) }
         }
         return base
     }
 
-    private mutating func postfix() throws -> MathFn {
+    private mutating func postfix() throws -> Expr {
         var f = try primary()
         while let ch = peek, ch == "!" || ch == "%" {
             i += 1
             let g = f
-            f = ch == "!" ? { Parser.factorial(g($0)) } : { g($0) / 100 }
+            f = ch == "!" ? { Parser.factorial(g($0, $1)) } : { g($0, $1) / 100 }
         }
         return f
     }
 
-    private mutating func primary() throws -> MathFn {
+    private mutating func primary() throws -> Expr {
         guard let ch = peek else { throw ParseError() }
         if ch.isNumber || ch == "." { return try number() }
         if ch == "(" {
@@ -116,7 +123,7 @@ struct Parser {
         throw ParseError()
     }
 
-    private mutating func number() throws -> MathFn {
+    private mutating func number() throws -> Expr {
         let start = i
         while let ch = peek, ch.isNumber || ch == "." { i += 1 }
         if let e = peek, e == "e" || e == "E" {
@@ -128,25 +135,26 @@ struct Parser {
             }
         }
         guard let v = Double(String(c[start..<i])) else { throw ParseError() }
-        return { _ in v }
+        return { _, _ in v }
     }
 
-    private mutating func identifier() throws -> MathFn {
+    private mutating func identifier() throws -> Expr {
         let rest = String(c[i...])
-        guard let name = Parser.names.filter({ rest.hasPrefix($0) }).max(by: { $0.count < $1.count }) else {
+        guard let name = names.filter({ rest.hasPrefix($0) }).max(by: { $0.count < $1.count }) else {
             throw ParseError()
         }
         i += name.count
         switch name {
-        case "x": return { $0 }
-        case "pi": return { _ in Double.pi }
-        case "e": return { _ in M_E }
+        case "x": return { x, _ in x }
+        case "y": return { _, y in y }
+        case "pi": return { _, _ in Double.pi }
+        case "e": return { _, _ in M_E }
         default: break
         }
-        let arg: MathFn
+        let arg: Expr
         if peek == "(" { arg = try primary() } else { arg = try power() }
         let d = deg
-        return { Parser.apply(name, arg($0), deg: d) }
+        return { x, y in Parser.apply(name, arg(x, y), deg: d) }
     }
 
     // MARK: Math

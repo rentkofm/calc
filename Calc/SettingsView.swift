@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("appearance") private var appearance: AppearanceMode = .system
     @AppStorage("accent") private var accent: AccentChoice = .orange
+    @AppStorage("customAccent") private var customHex = "FF2D55"
     @AppStorage("angle") private var angle: AngleMode = .degrees
     @AppStorage("precision") private var precision = 12
     @AppStorage("haptics") private var haptics = true
@@ -21,7 +22,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Accent Color")
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 14) {
-                            ForEach(AccentChoice.allCases) { choice in
+                            ForEach(AccentChoice.presets) { choice in
                                 Button {
                                     withAnimation(.smooth) { accent = choice }
                                 } label: {
@@ -43,6 +44,30 @@ struct SettingsView: View {
                         }
                     }
                     .padding(.vertical, 6)
+
+                    HStack {
+                        Button {
+                            accent = .custom
+                        } label: {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(Color(hex: customHex))
+                                    .frame(width: 22, height: 22)
+                                Text("Custom Color")
+                                if accent == .custom {
+                                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                                }
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.primary)
+                        Spacer()
+                        ColorPicker("Custom Color", selection: Binding(
+                            get: { Color(hex: customHex) },
+                            set: { customHex = $0.hex; accent = .custom }
+                        ), supportsOpacity: false)
+                        .labelsHidden()
+                    }
                 }
 
                 Section("Calculator") {
@@ -65,7 +90,7 @@ struct SettingsView: View {
 
                 Section {
                     Button("Reset All Settings", role: .destructive) {
-                        appearance = .system; accent = .orange; angle = .degrees
+                        appearance = .system; accent = .orange; customHex = "FF2D55"; angle = .degrees
                         precision = 12; haptics = true; showScientific = true; graphGrid = true
                     }
                 }
