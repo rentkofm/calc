@@ -3,7 +3,7 @@ import SwiftUI
 /// Unit conversion plus fractals, behind a switcher.
 struct ExtrasHubView: View {
     enum Mode: String, CaseIterable, Identifiable {
-        case convert = "Convert", fractals = "Fractals"
+        case convert = "Convert", fractals = "Fractals", formulas = "Formulas"
         var id: String { rawValue }
     }
 
@@ -14,6 +14,7 @@ struct ExtrasHubView: View {
             ZStack {
                 ConverterView().visible(mode == .convert)
                 FractalView().visible(mode == .fractals)
+                FormulasView().visible(mode == .formulas)
             }
             .background { AppBackground() }
             .navigationBarTitleDisplayMode(.inline)
@@ -23,7 +24,7 @@ struct ExtrasHubView: View {
                         ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    .frame(maxWidth: 260)
+                    .frame(maxWidth: 320)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
