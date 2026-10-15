@@ -23,3 +23,13 @@ open Calc.xcodeproj
 ```
 
 Pick your team under Signing & Capabilities, then run on a device or simulator.
+
+## Lexi
+
+A minimal dictionary and thesaurus in `Lexi/`, built for deaf and hard-of-hearing users: pronunciations are written out (IPA plus a plain-language sound guide), with no audio.
+
+- Definitions, synonyms, antonyms and related words
+- History and favorites, saved on device
+- Liquid Glass design, dark mode, custom accent color
+
+The `Build Lexi IPA` workflow produces `Lexi-unsigned.ipa`. Definitions come from dictionaryapi.dev and related words from Datamuse, so it needs a network connection.
