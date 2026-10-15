@@ -574,8 +574,8 @@ struct FractalView: View {
                 }
                 if kind == .custom {
                     sliderRow(SliderSpec(label: "Coeff.", range: 0.2...3, step: 0.05, defaultValue: 1), value: $coef)
-                    sliderRow(SliderSpec(label: "c real", range: -2...2, step: 0.01, defaultValue: -0.8), value: $customRe)
-                    sliderRow(SliderSpec(label: "c imag", range: -2...2, step: 0.01, defaultValue: 0.156), value: $customIm)
+                    sliderRow(SliderSpec(label: "c real", range: -40...40, step: 0.02, defaultValue: -0.8), value: $customRe)
+                    sliderRow(SliderSpec(label: "c imag", range: -40...40, step: 0.02, defaultValue: 0.156), value: $customIm)
                 }
                 HStack(spacing: 12) {
                     Text("Auto-zoom")
