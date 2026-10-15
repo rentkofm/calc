@@ -73,6 +73,12 @@ enum FractalRenderer {
             zr = x; zi = y; cr = 0.5667; ci = 0
         case .lambda:
             zr = 0.5
+        case .custom:
+            // Blend from Mandelbrot (z₀ = 0, c = pixel) to Julia (z₀ = pixel, c fixed).
+            let t = p.morph
+            zr = t * x; zi = t * y
+            cr = (1 - t) * x + t * p.juliaC.re
+            ci = (1 - t) * y + t * p.juliaC.im
         case .inverse:
             let d = x * x + y * y
             if d == 0 { return (-1, 0) }
@@ -154,6 +160,22 @@ enum FractalRenderer {
                 let wr = zr - r2 + i2, wi = zi - 2 * zr * zi
                 zr = cr * wr - ci * wi
                 zi = cr * wi + ci * wr
+            case .custom:
+                let k = p.coef
+                if p.power == 2 {
+                    zi = k * (2 * zr * zi) + ci
+                    zr = k * (r2 - i2) + cr
+                } else {
+                    let r = m.squareRoot()
+                    if r == 0 {
+                        zr = cr; zi = ci
+                    } else {
+                        let a = atan2(zi, zr) * p.power
+                        let rp = k * pow(r, p.power)
+                        zr = rp * cos(a) + cr
+                        zi = rp * sin(a) + ci
+                    }
+                }
             case .fracPower:
                 let r = m.squareRoot()
                 if r == 0 {
@@ -187,7 +209,7 @@ enum FractalRenderer {
         }
         if i >= p.maxIter { return (-1, 0) }
 
-        let degree = p.kind == .fracPower ? p.power : p.kind.degree
+        let degree = (p.kind == .fracPower || p.kind == .custom) ? p.power : p.kind.degree
         let mu = Double(i) + 1 - log2(0.5 * log(m)) / log2(degree)
         let aux: Double
         switch mode {

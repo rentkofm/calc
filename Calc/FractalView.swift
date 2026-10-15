@@ -16,6 +16,10 @@ struct FractalView: View {
     @State private var detail = 150.0
     @State private var power = 2.0
     @State private var zoomSpeed = 1.0 // doublings per second
+    @State private var morph = 0.0     // Custom: Mandelbrot (0) → Julia (1)
+    @State private var coef = 1.0
+    @State private var customRe = -0.8
+    @State private var customIm = 0.156
 
     @State private var center: Center = FractalKind.mandelbrot.defaultCenter
     @State private var scale: CGFloat = FractalKind.mandelbrot.defaultScale
@@ -86,8 +90,9 @@ struct FractalView: View {
 
     private var params: FractalParams {
         FractalParams(kind: kind, palette: palette, coloring: coloring, center: center, scale: scale,
-                      maxIter: maxIter, juliaC: Self.juliaPresets[juliaIndex], power: power, variant: variant,
-                      rotation: rotation)
+                      maxIter: maxIter,
+                      juliaC: kind == .custom ? (re: customRe, im: customIm) : Self.juliaPresets[juliaIndex],
+                      power: power, variant: variant, rotation: rotation, morph: morph, coef: coef)
     }
 
     private var ray3DParams: Ray3DParams {
@@ -113,13 +118,17 @@ struct FractalView: View {
         var rotation: Double
         var roll: Double
         var accent: [Double]
+        var morph: Double
+        var coef: Double
+        var customRe: Double
+        var customIm: Double
     }
 
     private var renderKey: RenderKey {
         RenderKey(kind: kind, palette: palette, coloring: coloring, juliaIndex: juliaIndex, variant: variant,
                   detail: detail, power: power, center: center, scale: Double(scale), size: size,
                   yaw: yaw, pitch: pitch, dist: dist, target: target, rotation: rotation, roll: roll,
-                  accent: accentComponents)
+                  accent: accentComponents, morph: morph, coef: coef, customRe: customRe, customIm: customIm)
     }
 
     // MARK: Rendering
@@ -169,6 +178,10 @@ struct FractalView: View {
         detail = kind.detailSpec?.defaultValue ?? 0
         power = kind.powerSpec?.defaultValue ?? 2
         variant = 0
+        morph = 0
+        coef = 1
+        customRe = -0.8
+        customIm = 0.156
         if !kind.supportsColoring { coloring = .smooth }
         resetCamera()
         renderer.clear()
@@ -552,6 +565,16 @@ struct FractalView: View {
                 }
                 if let spec = kind.detailSpec { sliderRow(spec, value: $detail) }
                 if let spec = kind.powerSpec { sliderRow(spec, value: $power) }
+                if kind == .custom {
+                    sliderRow(SliderSpec(label: "Morph", range: 0...1, step: 0.01, defaultValue: 0), value: $morph)
+                    sliderRow(SliderSpec(label: "Coeff.", range: 0.2...3, step: 0.05, defaultValue: 1), value: $coef)
+                    sliderRow(SliderSpec(label: "c real", range: -2...2, step: 0.01, defaultValue: -0.8), value: $customRe)
+                    sliderRow(SliderSpec(label: "c imag", range: -2...2, step: 0.01, defaultValue: 0.156), value: $customIm)
+                    Text("Morph 0 = Mandelbrot, 1 = Julia with the c above. z → coeff·zᵖ + c")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
                 HStack(spacing: 12) {
                     Text("Auto-zoom")
                         .foregroundStyle(.secondary)

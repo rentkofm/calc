@@ -3,6 +3,7 @@ import SwiftUI
 enum FractalCategory: String, CaseIterable, Identifiable {
     case mandelbrot = "Mandelbrot", ships = "Ships", newton = "Newton"
     case transcendental = "Transcendental", chaos = "Chaos", geometric = "Geometric", threeD = "3D"
+    case custom = "Custom"
     var id: String { rawValue }
     var kinds: [FractalKind] { FractalKind.allCases.filter { $0.category == self } }
 }
@@ -51,6 +52,8 @@ enum FractalKind: String, CaseIterable, Identifiable {
     case lPlant = "Fractal Plant", lTree = "Bush", lArrowhead = "Arrowhead"
     // 3D
     case mandelbulb = "Mandelbulb", mandelbox = "Mandelbox"
+    // Morph between Mandelbrot and Julia, with its own exponent and coefficient
+    case custom = "Custom"
 
     var id: String { rawValue }
 
@@ -72,6 +75,8 @@ enum FractalKind: String, CaseIterable, Identifiable {
             return .geometric
         case .mandelbulb, .mandelbox:
             return .threeD
+        case .custom:
+            return .custom
         }
     }
 
@@ -106,6 +111,7 @@ enum FractalKind: String, CaseIterable, Identifiable {
         case .levy: return Center(x: 0.5, y: 0.2)
         case .koch: return Center(x: 0.5, y: 0.43)
         case .pythagoras: return Center(x: 0, y: 2.2)
+        case .custom: return Center(x: -0.25, y: 0)
         default: return Center(x: 0, y: 0)
         }
     }
@@ -131,6 +137,7 @@ enum FractalKind: String, CaseIterable, Identifiable {
         case .pythagoras: return 60
         case .apollonian: return 160
         case .lPlant, .lTree, .lArrowhead: return 400
+        case .custom: return 100
         case .mandelbulb, .mandelbox: return 1
         default: return 110
         }
@@ -168,7 +175,7 @@ enum FractalKind: String, CaseIterable, Identifiable {
     var supportsColoring: Bool {
         switch self {
         case .mandelbrot, .julia, .tricorn, .multibrot, .quartic, .quintic, .fracPower, .celtic,
-             .perpendicular, .phoenix, .inverse, .lambda, .burningShip, .cubicShip, .burningJulia:
+             .perpendicular, .phoenix, .inverse, .lambda, .burningShip, .cubicShip, .burningJulia, .custom:
             return true
         default:
             return false
@@ -222,6 +229,7 @@ enum FractalKind: String, CaseIterable, Identifiable {
         case .mandelbulb: return SliderSpec(label: "Power", range: 2...12, step: 0.1, defaultValue: 8)
         case .mandelbox: return SliderSpec(label: "Scale", range: -3...3.5, step: 0.05, defaultValue: 2)
         case .pythagoras: return SliderSpec(label: "Angle", range: 15...75, step: 1, defaultValue: 45)
+        case .custom: return SliderSpec(label: "Power", range: 1.2...8, step: 0.05, defaultValue: 2)
         default: return nil
         }
     }
@@ -357,4 +365,6 @@ struct FractalParams {
     var power: Double = 2
     var variant: Int = 0
     var rotation: Double = 0
+    var morph: Double = 0   // Custom: 0 = Mandelbrot … 1 = Julia
+    var coef: Double = 1    // Custom: coefficient on the power term
 }
