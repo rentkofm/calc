@@ -9,8 +9,6 @@ struct SettingsView: View {
     @AppStorage("haptics") private var haptics = true
     @AppStorage("showScientific") private var showScientific = true
     @AppStorage("graphGrid") private var graphGrid = true
-    @AppStorage("starDensity") private var starDensity = 0.5
-    @AppStorage("starTwinkle") private var starTwinkle = 0.5
 
     var body: some View {
         NavigationStack {
@@ -72,19 +70,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Section {
-                    LabeledContent("Star Density") {
-                        Slider(value: $starDensity, in: 0...1).frame(maxWidth: 180)
-                    }
-                    LabeledContent("Star Twinkle") {
-                        Slider(value: $starTwinkle, in: 0...1).frame(maxWidth: 180)
-                    }
-                } header: {
-                    Text("Night Sky")
-                } footer: {
-                    Text("Stars and the lit city skyline appear in dark mode.")
-                }
-
                 Section("Calculator") {
                     Picker("Angle Unit", selection: $angle) {
                         ForEach(AngleMode.allCases) { Text($0.label).tag($0) }
@@ -107,7 +92,6 @@ struct SettingsView: View {
                     Button("Reset All Settings", role: .destructive) {
                         appearance = .system; accent = .orange; customHex = "FF2D55"; angle = .degrees
                         precision = 12; haptics = true; showScientific = true; graphGrid = true
-                        starDensity = 0.5; starTwinkle = 0.5
                     }
                 }
 

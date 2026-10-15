@@ -10,7 +10,6 @@ struct ContentView: View {
             Tab("Calculator", systemImage: "plus.forwardslash.minus") { CalculatorView() }
             Tab("Graph", systemImage: "chart.xyaxis.line") { GraphHubView() }
             Tab("Extras", systemImage: "square.grid.2x2") { ExtrasHubView() }
-            Tab("Favorites", systemImage: "star") { FavoritesView() }
             Tab("Settings", systemImage: "gearshape") { SettingsView() }
         }
         .tint(accent.resolved(customHex: customHex))
