@@ -1,0 +1,26 @@
+name: Build IPA
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: brew install xcodegen && xcodegen generate
+      - name: Build (unsigned)
+        run: |
+          xcodebuild -project Captions.xcodeproj -scheme Captions \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/Captions.app Payload/
+          zip -qry Captions.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Captions-ipa
+          path: Captions.ipa

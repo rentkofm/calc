@@ -1,0 +1,29 @@
+name: Captions
+options:
+  bundleIdPrefix: com.rentkofm
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1,2"
+targets:
+  Captions:
+    type: application
+    platform: iOS
+    sources: [Captions]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rentkofm.captions
+        CODE_SIGN_STYLE: Automatic
+    info:
+      path: Captions/Info.plist
+      properties:
+        CFBundleDisplayName: Captions
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSMicrophoneUsageDescription: Captions listens to speech around you so it can show it as text.
+        NSSpeechRecognitionUsageDescription: Captions converts speech to text so you can read it.
