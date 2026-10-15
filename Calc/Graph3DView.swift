@@ -23,6 +23,7 @@ struct Graph3DView: View {
     @State private var surfaceColor = Color.blue
     @State private var dragOrigin: (yaw: Double, elevation: Double)?
     @State private var zoomOrigin: CGFloat?
+    @Environment(\.graphFullscreen) private var fullscreen
     @FocusState private var focused: Bool
 
     private var expression: Expr? {
@@ -34,13 +35,12 @@ struct Graph3DView: View {
     var body: some View {
         VStack(spacing: 12) {
             surface
-            if focused { chipRow } else { presetRow }
-            inputCard
+            if !fullscreen.wrappedValue {
+                if focused { chipRow } else { presetRow }
+                inputCard
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-        .frame(maxWidth: 720)
-        .frame(maxWidth: .infinity)
+        .modifier(GraphPage())
     }
 
     // MARK: Surface
@@ -48,8 +48,10 @@ struct Graph3DView: View {
     private var surface: some View {
         Canvas { ctx, size in draw(ctx, size) }
             .frame(minHeight: 240)
-            .clipShape(.rect(cornerRadius: 28))
-            .glassEffect(.regular, in: .rect(cornerRadius: 28))
+            .modifier(GraphSurface())
+            .overlay(alignment: .topTrailing) {
+                if !fullscreen.wrappedValue { EnterFullscreenButton().padding(10) }
+            }
             .gesture(
                 DragGesture()
                     .onChanged { v in

@@ -230,6 +230,7 @@ struct ComplexGraphView: View {
     @State private var renderer = ProgressiveRenderer()
     @State private var inertia = Inertia()
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.graphFullscreen) private var fullscreen
     @FocusState private var focused: Bool
 
     private var function: ComplexFn? {
@@ -241,13 +242,12 @@ struct ComplexGraphView: View {
     var body: some View {
         VStack(spacing: 12) {
             plane
-            if focused { chipRow } else { presetRow }
-            inputCard
+            if !fullscreen.wrappedValue {
+                if focused { chipRow } else { presetRow }
+                inputCard
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-        .frame(maxWidth: 720)
-        .frame(maxWidth: .infinity)
+        .modifier(GraphPage())
         .onChange(of: text) { probe = nil }
         .onChange(of: renderKey) { refresh() }
         .onAppear { refresh() }
@@ -283,8 +283,10 @@ struct ComplexGraphView: View {
         }
         .frame(minHeight: 200)
         .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { size = $0 })
-        .clipShape(.rect(cornerRadius: 28))
-        .glassEffect(.regular, in: .rect(cornerRadius: 28))
+        .modifier(GraphSurface())
+        .overlay(alignment: .topTrailing) {
+            if !fullscreen.wrappedValue { EnterFullscreenButton().padding(10) }
+        }
         .gesture(
             DragGesture(minimumDistance: 3)
                 .onChanged { v in

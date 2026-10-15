@@ -69,20 +69,18 @@ struct GraphView: View {
     @State private var showSaved = false
     @State private var showNameAlert = false
     @State private var saveName = ""
+    @Environment(\.graphFullscreen) private var fullscreen
     @FocusState private var focused: UUID?
 
     var body: some View {
         VStack(spacing: 10) {
             graph
-            if !panelHidden {
+            if !panelHidden && !fullscreen.wrappedValue {
                 if focused != nil { chipRow }
                 panel
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-        .frame(maxWidth: 720)
-        .frame(maxWidth: .infinity)
+        .modifier(GraphPage())
         .onAppear { recompile() }
         .onChange(of: rows) { recompile() }
         .onChange(of: sliders) { recompile() }
@@ -171,8 +169,7 @@ struct GraphView: View {
         Canvas { ctx, size in draw(ctx, size) }
             .frame(minHeight: 200)
             .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { canvasSize = $0 })
-            .clipShape(.rect(cornerRadius: 28))
-            .glassEffect(.regular, in: .rect(cornerRadius: 28))
+            .modifier(GraphSurface())
             .gesture(
                 DragGesture(minimumDistance: 3)
                     .onChanged { v in
@@ -196,8 +193,12 @@ struct GraphView: View {
             )
             .onTapGesture { location in handleTap(at: location) }
             .overlay { selectionOverlay }
-            .overlay(alignment: .topLeading) { leadingControls.padding(10) }
-            .overlay(alignment: .topTrailing) { trailingControls.padding(10) }
+            .overlay(alignment: .topLeading) {
+                if !fullscreen.wrappedValue { leadingControls.padding(10) }
+            }
+            .overlay(alignment: .topTrailing) {
+                if !fullscreen.wrappedValue { trailingControls.padding(10) }
+            }
     }
 
     private var leadingControls: some View {
@@ -234,6 +235,13 @@ struct GraphView: View {
     }
 
     private var trailingControls: some View {
+        HStack(spacing: 8) {
+            panelToggle
+            EnterFullscreenButton()
+        }
+    }
+
+    private var panelToggle: some View {
         Button {
             withAnimation(.smooth) { panelHidden.toggle() }
             focused = nil
