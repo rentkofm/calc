@@ -3,7 +3,7 @@ import SwiftUI
 struct GraphFunction: Identifiable {
     let id = UUID()
     var text: String
-    let colorIndex: Int
+    var color: Color
 }
 
 /// A plottable curve: either `y = f(x)` or an implicit relation `F(x, y) = 0`.
@@ -43,7 +43,7 @@ enum Curve {
 struct SelectedPoint {
     var x: Double
     var y: Double
-    var colorIndex: Int
+    var functionID: UUID
 }
 
 struct GraphView: View {
@@ -60,7 +60,7 @@ struct GraphView: View {
 
     @AppStorage("graphGrid") private var showGrid = true
 
-    @State private var functions = [GraphFunction(text: "sin(x)", colorIndex: 0)]
+    @State private var functions = [GraphFunction(text: "sin(x)", color: GraphView.color(for: 0))]
     @State private var nextColorIndex = 1
     @State private var center = CGPoint.zero
     @State private var scale: CGFloat = 40
@@ -74,28 +74,17 @@ struct GraphView: View {
     @FocusState private var focused: UUID?
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 12) {
-                graph
-                if focused != nil { chipRow }
-                functionList
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .frame(maxWidth: 720)
-            .frame(maxWidth: .infinity)
-            .background { AppBackground() }
-            .navigationTitle("Graph")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { focused = nil }
-                }
-            }
-            .onChange(of: functions.map(\.text)) { selected = nil }
-            .onDisappear { stopInertia() }
+        VStack(spacing: 12) {
+            graph
+            if focused != nil { chipRow }
+            functionList
         }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+        .frame(maxWidth: 720)
+        .frame(maxWidth: .infinity)
+        .onChange(of: functions.map(\.text)) { selected = nil }
+        .onDisappear { stopInertia() }
     }
 
     // MARK: Coordinates
@@ -149,7 +138,7 @@ struct GraphView: View {
             // Hide the marker (and its label) whenever the point is panned or zoomed off the graph.
             if let s = selected, case let p = toScreen(s.x, s.y, geo.size),
                CGRect(origin: .zero, size: geo.size).contains(p) {
-                let color = Self.color(for: s.colorIndex)
+                let color = functions.first { $0.id == s.functionID }?.color ?? .accentColor
                 ZStack {
                     Circle()
                         .fill(color)
@@ -242,7 +231,7 @@ struct GraphView: View {
             }
         }
         withAnimation(.snappy(duration: 0.2)) {
-            selected = SelectedPoint(x: gx, y: gy, colorIndex: functions[hit.index].colorIndex)
+            selected = SelectedPoint(x: gx, y: gy, functionID: functions[hit.index].id)
         }
         Haptics.tap()
     }
@@ -379,20 +368,20 @@ struct GraphView: View {
                 path.move(to: seg.0)
                 path.addLine(to: seg.1)
             }
-            ctx.stroke(path, with: .color(Self.color(for: fn.colorIndex)),
+            ctx.stroke(path, with: .color(fn.color),
                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
         }
     }
 
     /// Multiples of `step` inside [lo, hi]; computed by index so it can't stall at extreme zoom.
-    private static func gridValues(_ lo: Double, _ hi: Double, _ step: Double) -> [Double] {
+    static func gridValues(_ lo: Double, _ hi: Double, _ step: Double) -> [Double] {
         guard step.isFinite, step > 0, lo.isFinite, hi.isFinite else { return [] }
         let first = (lo / step).rounded(.up)
         let count = min(Int(max(0, (hi / step).rounded(.down) - first)) + 1, 200)
         return (0..<count).map { (first + Double($0)) * step }
     }
 
-    private static func niceStep(_ target: Double) -> Double {
+    static func niceStep(_ target: Double) -> Double {
         let p = pow(10, floor(log10(target)))
         for m in [1.0, 2.0, 5.0, 10.0] where m * p >= target { return m * p }
         return 10 * p
@@ -438,7 +427,9 @@ struct GraphView: View {
                 ForEach($functions) { $fn in
                     let valid = fn.text.isEmpty || Curve.parse(fn.text) != nil
                     HStack(spacing: 10) {
-                        Circle().fill(Self.color(for: fn.colorIndex)).frame(width: 12, height: 12)
+                        ColorPicker("Line color", selection: $fn.color, supportsOpacity: false)
+                            .labelsHidden()
+                            .fixedSize()
                         TextField("f(x) or equation", text: $fn.text)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -458,7 +449,7 @@ struct GraphView: View {
                     Divider()
                 }
                 Button {
-                    let new = GraphFunction(text: "", colorIndex: nextColorIndex)
+                    let new = GraphFunction(text: "", color: Self.color(for: nextColorIndex))
                     nextColorIndex += 1
                     withAnimation { functions.append(new) }
                     focused = new.id

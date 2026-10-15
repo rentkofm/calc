@@ -18,6 +18,8 @@ struct Graph3DView: View {
     @State private var elevation = 0.6
     @State private var zoom: CGFloat = 1
     @State private var range = 5.0
+    @State private var rainbow = true
+    @State private var surfaceColor = Color.blue
     @State private var dragOrigin: (yaw: Double, elevation: Double)?
     @State private var zoomOrigin: CGFloat?
     @FocusState private var focused: Bool
@@ -29,26 +31,15 @@ struct Graph3DView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 12) {
-                surface
-                if focused { chipRow } else { presetRow }
-                inputCard
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .frame(maxWidth: 720)
-            .frame(maxWidth: .infinity)
-            .background { AppBackground() }
-            .navigationTitle("3D Graph")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { focused = false }
-                }
-            }
+        VStack(spacing: 12) {
+            surface
+            if focused { chipRow } else { presetRow }
+            inputCard
         }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+        .frame(maxWidth: 720)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: Surface
@@ -121,6 +112,9 @@ struct Graph3DView: View {
         let hi = finite[Int(Double(finite.count - 1) * 0.98)]
         let mid = (lo + hi) / 2, half = max((hi - lo) / 2, 1e-12)
 
+        var baseH: CGFloat = 0, baseS: CGFloat = 0, baseB: CGFloat = 0, baseA: CGFloat = 0
+        UIColor(surfaceColor).getHue(&baseH, saturation: &baseS, brightness: &baseB, alpha: &baseA)
+
         var pts = [(point: CGPoint, depth: Double, h: Double)](repeating: (.zero, 0, .nan), count: zs.count)
         for j in 0...n {
             for i in 0...n {
@@ -154,7 +148,10 @@ struct Graph3DView: View {
             path.closeSubpath()
             let h = c.reduce(0) { $0 + pts[$1].h } / 4
             let t = min(max((h + 1) / 2.5, 0), 1)
-            ctx.fill(path, with: .color(Color(hue: 0.66 * (1 - t), saturation: 0.75, brightness: 0.95)))
+            let fill = rainbow
+                ? Color(hue: 0.66 * (1 - t), saturation: 0.75, brightness: 0.95)
+                : Color(hue: Double(baseH), saturation: Double(baseS), brightness: Double(baseB) * (0.5 + 0.5 * t))
+            ctx.fill(path, with: .color(fill))
             ctx.stroke(path, with: .color(.black.opacity(0.18)), lineWidth: 0.5)
         }
 
@@ -219,6 +216,19 @@ struct Graph3DView: View {
             if !text.isEmpty && expression == nil {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
             }
+            Button {
+                rainbow.toggle()
+            } label: {
+                Image(systemName: rainbow ? "rainbow" : "paintbrush.fill")
+                    .foregroundStyle(rainbow ? Color.secondary : surfaceColor)
+            }
+            .buttonStyle(.plain)
+            ColorPicker("Surface color", selection: Binding(
+                get: { surfaceColor },
+                set: { surfaceColor = $0; rainbow = false }
+            ), supportsOpacity: false)
+            .labelsHidden()
+            .fixedSize()
             Picker("Range", selection: $range) {
                 ForEach(Self.ranges, id: \.self) { r in Text("±\(formatNumber(r))").tag(r) }
             }
