@@ -183,9 +183,14 @@ enum VectorFractals {
                                  ky: 2 * (p.ky + q.ky + d.ky) - drop.ky)
                 if new.radius * v.s < 0.4 { continue }
                 // Descendants stay within the gap bounded by p, q and d.
-                let rects = [p, q, d].map { ($0.cx - $0.radius, $0.cx + $0.radius, $0.cy - $0.radius, $0.cy + $0.radius) }
-                let minx = rects.map { $0.0 }.min() ?? 0, maxx = rects.map { $0.1 }.max() ?? 0
-                let miny = rects.map { $0.2 }.min() ?? 0, maxy = rects.map { $0.3 }.max() ?? 0
+                var minx = Double.infinity, maxx = -Double.infinity
+                var miny = Double.infinity, maxy = -Double.infinity
+                for disc in [p, q, d] {
+                    let r: Double = disc.radius
+                    let x: Double = disc.cx, y: Double = disc.cy
+                    minx = min(minx, x - r); maxx = max(maxx, x + r)
+                    miny = min(miny, y - r); maxy = max(maxy, y + r)
+                }
                 if !v.intersects(minx: minx, maxx: maxx, miny: miny, maxy: maxy) { continue }
                 add(new, depth)
                 grow(p, q, d, new, depth + 1)
