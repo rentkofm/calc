@@ -55,8 +55,10 @@ struct SettingsView: View {
                     Toggle("Haptic Feedback", isOn: $haptics)
                 }
 
-                Section("Graph") {
+                Section {
                     Toggle("Show Grid", isOn: $graphGrid)
+                } header: {
+                    Text("Graph")
                 } footer: {
                     Text("Graphs always use radians.")
                 }
