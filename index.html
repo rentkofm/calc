@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Captions</title>
+<style>
+  :root {
+    --accent: #0a84ff;
+    --on-accent: #fff;
+    --bg: #f2f2f7;
+    --label: #000;
+    --label-2: rgba(60,60,67,.62);
+    --glass: rgba(255,255,255,.52);
+    --glass-edge: rgba(255,255,255,.75);
+    --glass-shadow: rgba(0,0,0,.10);
+    --sep: rgba(60,60,67,.18);
+    --danger: #ff3b30;
+    --text-size: 28px;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  :root[data-theme="dark"] {
+    --bg: #000;
+    --label: #fff;
+    --label-2: rgba(235,235,245,.6);
+    --glass: rgba(44,44,50,.46);
+    --glass-edge: rgba(255,255,255,.22);
+    --glass-shadow: rgba(0,0,0,.5);
+    --sep: rgba(84,84,88,.6);
+    --danger: #ff453a;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font: 17px/1.35 var(--font);
+    color: var(--label);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* Ambient backdrop gives the glass something to refract */
+  .ambient { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+  .ambient i {
+    position: absolute; border-radius: 50%; filter: blur(70px); opacity: .5;
+    background: var(--accent);
+  }
+  .ambient i:nth-child(1) { width: 60vmax; height: 60vmax; top: -20vmax; left: -15vmax; }
+  .ambient i:nth-child(2) { width: 50vmax; height: 50vmax; bottom: -20vmax; right: -15vmax; opacity: .35; filter: blur(80px) hue-rotate(50deg); }
+  :root[data-theme="dark"] .ambient i { opacity: .38; }
+  :root[data-theme="dark"] .ambient i:nth-child(2) { opacity: .28; }
+
+  /* Liquid glass */
+  .glass {
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(26px) saturate(190%);
+    backdrop-filter: blur(26px) saturate(190%);
+    border: 1px solid var(--glass-edge);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.45),
+      inset 0 -1px 0 rgba(255,255,255,.08),
+      0 8px 28px var(--glass-shadow);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .glass { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--bg); }
+  }
+
+  .app {
+    position: relative; z-index: 1; height: 100%;
+    display: flex; flex-direction: column;
+    max-width: 720px; margin: 0 auto;
+  }
+  .screen { display: none; flex: 1; min-height: 0; flex-direction: column; }
+  .screen.active { display: flex; }
+  .scroll {
+    flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 110px);
+  }
+  h1.title { font-size: 34px; line-height: 1.12; letter-spacing: .37px; font-weight: 700; margin: 8px 4px 16px; }
+
+  /* Transcribe */
+  .status { font-size: 13px; font-weight: 600; color: var(--label-2); text-transform: uppercase; letter-spacing: .5px; margin: 8px 4px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); }
+  .listening .dot { background: var(--danger); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { transform: scale(1.6); opacity: .5; } }
+  .live {
+    border-radius: 26px; padding: 20px; min-height: 55vh;
+    font-size: var(--text-size); line-height: 1.3; font-weight: 600; letter-spacing: -.01em;
+    overflow-wrap: anywhere;
+  }
+  .live .interim { color: var(--label-2); }
+  .live .placeholder { color: var(--label-2); font-weight: 500; }
+
+  .mic-wrap {
+    position: fixed; left: 0; right: 0; z-index: 2;
+    bottom: calc(env(safe-area-inset-bottom) + 92px);
+    display: flex; justify-content: center; pointer-events: none;
+  }
+  .mic {
+    pointer-events: auto; border: 0; cursor: pointer;
+    height: 64px; min-width: 64px; padding: 0 26px; border-radius: 32px;
+    display: inline-flex; align-items: center; gap: 10px;
+    font: 600 17px var(--font); color: var(--on-accent);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, #fff), var(--accent));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 10px 30px color-mix(in srgb, var(--accent) 55%, transparent);
+    transition: transform .2s cubic-bezier(.2,.8,.2,1);
+  }
+  .mic:active { transform: scale(.94); }
+  .mic.on { background: linear-gradient(180deg, #ff6a60, var(--danger)); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 10px 30px rgba(255,59,48,.5); }
+  .mic svg { width: 24px; height: 24px; fill: currentColor; }
+
+  /* Tab bar */
+  .tabbar {
+    position: fixed; z-index: 3; left: 50%; transform: translateX(-50%);
+    bottom: calc(env(safe-area-inset-bottom) + 12px);
+    width: min(calc(100% - 32px), 400px);
+    display: flex; padding: 5px; border-radius: 30px; gap: 2px;
+  }
+  .tab {
+    flex: 1; border: 0; background: none; cursor: pointer; color: var(--label-2);
+    border-radius: 25px; padding: 7px 0 6px; font: 600 10.5px var(--font);
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  .tab svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .tab[aria-selected="true"] { color: var(--accent); background: color-mix(in srgb, var(--label) 9%, transparent); }
+
+  /* Lists / grouped sections */
+  .group { border-radius: 22px; overflow: hidden; margin-bottom: 22px; }
+  .row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    min-height: 48px; padding: 10px 16px; position: relative;
+  }
+  .row + .row::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; height: .5px; background: var(--sep); }
+  .footer { font-size: 13px; color: var(--label-2); margin: -14px 16px 22px; }
+  .header { font-size: 13px; color: var(--label-2); text-transform: uppercase; margin: 0 16px 6px; letter-spacing: .3px; }
+
+  .hist { width: 100%; text-align: left; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; display: block; padding: 12px 16px; }
+  .hist + .hist { border-top: .5px solid var(--sep); }
+  .hist .when { font-size: 13px; color: var(--label-2); }
+  .hist .snip { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-top: 2px; }
+  .empty { text-align: center; color: var(--label-2); padding: 60px 20px; }
+
+  .search {
+    width: 100%; border: 0; outline: none; border-radius: 12px; padding: 10px 14px; margin-bottom: 18px;
+    font: 17px var(--font); color: var(--label);
+  }
+  .search::placeholder { color: var(--label-2); }
+
+  .btn-text { border: 0; background: none; font: 17px var(--font); color: var(--accent); cursor: pointer; padding: 6px 0; }
+  .btn-text.danger { color: var(--danger); }
+
+  /* Settings controls */
+  .seg { display: flex; background: color-mix(in srgb, var(--label) 9%, transparent); border-radius: 9px; padding: 2px; }
+  .seg button { border: 0; background: none; color: var(--label); font: 500 13px var(--font); padding: 6px 12px; border-radius: 7px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--glass-edge); box-shadow: 0 1px 4px var(--glass-shadow); font-weight: 600; }
+  :root[data-theme="dark"] .seg button[aria-pressed="true"] { background: rgba(120,120,128,.5); }
+
+  .swatches { display: flex; gap: 12px; flex-wrap: wrap; padding: 14px 16px; }
+  .sw { width: 36px; height: 36px; border-radius: 50%; border: 0; cursor: pointer; background: var(--c); box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 2px 6px var(--glass-shadow); position: relative; }
+  .sw[aria-checked="true"]::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 2.5px solid var(--c); }
+  .sw.custom { background: conic-gradient(#ff3b30, #ff9500, #ffcc00, #34c759, #5ac8fa, #0a84ff, #af52de, #ff2d55, #ff3b30); overflow: hidden; }
+  .sw.custom input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+  input[type=range] { accent-color: var(--accent); width: 150px; }
+  .preview { font-size: var(--text-size); font-weight: 600; padding: 14px 16px; }
+
+  /* Sheet for history detail */
+  .sheet-back { position: fixed; inset: 0; z-index: 10; background: rgba(0,0,0,.35); display: none; align-items: flex-end; justify-content: center; }
+  .sheet-back.open { display: flex; }
+  .sheet {
+    width: 100%; max-width: 720px; max-height: 88%; overflow-y: auto; border-radius: 30px 30px 0 0;
+    padding: 12px 20px calc(env(safe-area-inset-bottom) + 20px); animation: up .35s cubic-bezier(.2,.8,.2,1);
+  }
+  @keyframes up { from { transform: translateY(40%); opacity: 0; } }
+  .grab { width: 36px; height: 5px; border-radius: 3px; background: var(--sep); margin: 0 auto 14px; }
+  .sheet .text { font-size: var(--text-size); font-weight: 600; line-height: 1.3; margin: 8px 0 20px; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .actions { display: flex; gap: 10px; }
+  .actions button { flex: 1; min-height: 48px; border: 0; border-radius: 24px; font: 600 16px var(--font); cursor: pointer; color: var(--accent); background: color-mix(in srgb, var(--label) 8%, transparent); }
+  .actions .danger { color: var(--danger); }
+
+  .banner { border-radius: 18px; padding: 14px 16px; margin-bottom: 14px; font-size: 15px; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="ambient" aria-hidden="true"><i></i><i></i></div>
+
+<main class="app">
+  <!-- Transcribe -->
+  <section class="screen active" id="screen-live" aria-label="Transcribe">
+    <div class="scroll">
+      <h1 class="title">Captions</h1>
+      <div id="unsupported" class="banner glass" hidden>Live transcription isn’t supported in this browser. Try Safari or Chrome.</div>
+      <div class="status" id="status"><span class="dot"></span><span id="statusText">Ready</span></div>
+      <div class="live glass" id="live" aria-live="polite" aria-atomic="false">
+        <span class="placeholder">Tap Listen to start transcribing speech around you.</span>
+      </div>
+    </div>
+    <div class="mic-wrap">
+      <button class="mic" id="mic" aria-label="Start listening">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a4 4 0 0 0 4-4V6a4 4 0 0 0-8 0v5a4 4 0 0 0 4 4Zm6-4a1 1 0 1 1 2 0 8 8 0 0 1-7 7.93V21h2a1 1 0 1 1 0 2H9a1 1 0 1 1 0-2h2v-2.07A8 8 0 0 1 4 11a1 1 0 1 1 2 0 6 6 0 0 0 12 0Z"/></svg>
+        <span id="micLabel">Listen</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- History -->
+  <section class="screen" id="screen-history" aria-label="History">
+    <div class="scroll">
+      <h1 class="title">History</h1>
+      <input class="search glass" id="search" type="search" placeholder="Search" aria-label="Search history">
+      <div id="historyList"></div>
+    </div>
+  </section>
+
+  <!-- Settings -->
+  <section class="screen" id="screen-settings" aria-label="Settings">
+    <div class="scroll">
+      <h1 class="title">Settings</h1>
+
+      <div class="header">Appearance</div>
+      <div class="group glass">
+        <div class="row"><span>Theme</span>
+          <div class="seg" id="themeSeg">
+            <button data-v="system">Auto</button><button data-v="light">Light</button><button data-v="dark">Dark</button>
+          </div>
+        </div>
+        <div class="row"><span>Text size</span><input type="range" id="size" min="20" max="56" step="2" aria-label="Caption text size"></div>
+        <div class="preview">Preview text</div>
+      </div>
+
+      <div class="header">Accent color</div>
+      <div class="group glass">
+        <div class="swatches" id="swatches" role="radiogroup" aria-label="Accent color"></div>
+      </div>
+
+      <div class="header">Transcription</div>
+      <div class="group glass">
+        <div class="row"><span>Language</span>
+          <select id="lang" aria-label="Language" style="font:17px var(--font);color:var(--accent);background:none;border:0;max-width:60%"></select>
+        </div>
+        <div class="row"><span>Save to history</span><input type="checkbox" id="saveHist" style="width:42px;height:26px;accent-color:var(--accent)"></div>
+        <div class="row"><span>Haptic feedback</span><input type="checkbox" id="haptics" style="width:42px;height:26px;accent-color:var(--accent)"></div>
+      </div>
+      <div class="footer">Speech is processed by your browser’s speech service. Transcripts stay on this device.</div>
+
+      <div class="group glass"><div class="row"><button class="btn-text danger" id="clearAll">Clear History…</button></div></div>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar glass" role="tablist" aria-label="Main">
+  <button class="tab" role="tab" data-s="live" aria-selected="true">
+    <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Transcribe</button>
+  <button class="tab" role="tab" data-s="history" aria-selected="false">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>History</button>
+  <button class="tab" role="tab" data-s="settings" aria-selected="false">
+    <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>Settings</button>
+</nav>
+
+<div class="sheet-back" id="sheetBack">
+  <div class="sheet glass" role="dialog" aria-modal="true" aria-label="Transcript">
+    <div class="grab"></div>
+    <div class="when" id="sheetWhen" style="color:var(--label-2);font-size:13px"></div>
+    <div class="text" id="sheetText"></div>
+    <div class="actions">
+      <button id="actCopy">Copy</button>
+      <button id="actShare">Share</button>
+      <button id="actDelete" class="danger">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
+
+  /* ---------- Settings ---------- */
+  const COLORS = ['#0a84ff','#5e5ce6','#bf5af2','#ff375f','#ff453a','#ff9f0a','#30d158','#40c8e0'];
+  const LANGS = [['en-US','English (US)'],['en-GB','English (UK)'],['es-ES','Español'],['fr-FR','Français'],['de-DE','Deutsch'],['it-IT','Italiano'],['pt-BR','Português'],['ja-JP','日本語'],['ko-KR','한국어'],['zh-CN','中文']];
+  const settings = Object.assign(
+    { theme: 'system', accent: COLORS[0], size: 30, lang: navigator.language || 'en-US', save: true, haptics: true },
+    store.get('settings', {})
+  );
+  const saveSettings = () => store.set('settings', settings);
+  const dark = matchMedia('(prefers-color-scheme: dark)');
+
+  function applySettings() {
+    const r = document.documentElement;
+    r.dataset.theme = settings.theme === 'system' ? (dark.matches ? 'dark' : 'light') : settings.theme;
+    r.style.setProperty('--accent', settings.accent);
+    r.style.setProperty('--text-size', settings.size + 'px');
+    const [rr, gg, bb] = [1, 3, 5].map(i => parseInt(settings.accent.slice(i, i + 2), 16));
+    const lum = (0.299 * rr + 0.587 * gg + 0.114 * bb) / 255;
+    r.style.setProperty('--on-accent', lum > .68 ? '#000' : '#fff');
+    document.querySelectorAll('#themeSeg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === settings.theme));
+    document.querySelectorAll('.sw[data-c]').forEach(b => b.setAttribute('aria-checked', b.dataset.c === settings.accent));
+    $('#customColor').value = settings.accent;
+  }
+  dark.addEventListener('change', applySettings);
+
+  // swatches
+  const sw = $('#swatches');
+  COLORS.forEach(c => {
+    const b = document.createElement('button');
+    b.className = 'sw'; b.style.setProperty('--c', c); b.dataset.c = c;
+    b.setAttribute('role', 'radio'); b.setAttribute('aria-label', 'Accent ' + c);
+    b.onclick = () => { settings.accent = c; saveSettings(); applySettings(); buzz(); };
+    sw.appendChild(b);
+  });
+  const custom = document.createElement('label');
+  custom.className = 'sw custom'; custom.setAttribute('aria-label', 'Custom accent color');
+  custom.innerHTML = '<input type="color" id="customColor">';
+  sw.appendChild(custom);
+  $('#customColor').addEventListener('input', e => { settings.accent = e.target.value; saveSettings(); applySettings(); });
+
+  $('#themeSeg').onclick = e => { const v = e.target.dataset.v; if (v) { settings.theme = v; saveSettings(); applySettings(); } };
+  $('#size').value = settings.size;
+  $('#size').oninput = e => { settings.size = +e.target.value; saveSettings(); applySettings(); };
+  $('#lang').innerHTML = LANGS.map(([c, n]) => `<option value="${c}">${n}</option>`).join('');
+  if (!LANGS.some(l => l[0] === settings.lang)) settings.lang = 'en-US';
+  $('#lang').value = settings.lang;
+  $('#lang').onchange = e => { settings.lang = e.target.value; saveSettings(); };
+  $('#saveHist').checked = settings.save;
+  $('#saveHist').onchange = e => { settings.save = e.target.checked; saveSettings(); };
+  $('#haptics').checked = settings.haptics;
+  $('#haptics').onchange = e => { settings.haptics = e.target.checked; saveSettings(); };
+  const buzz = (p = 10) => { if (settings.haptics && navigator.vibrate) navigator.vibrate(p); };
+  applySettings();
+
+  /* ---------- Tabs ---------- */
+  function show(name) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
+    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', t.dataset.s === name));
+    $('.mic-wrap').style.display = name === 'live' ? 'flex' : 'none';
+    if (name === 'history') renderHistory();
+  }
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => { buzz(6); show(t.dataset.s); });
+
+  /* ---------- History ---------- */
+  let history = store.get('history', []);
+  const persist = () => store.set('history', history);
+  const fmt = ts => new Date(ts).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function renderHistory() {
+    const q = $('#search').value.trim().toLowerCase();
+    const items = history.filter(h => !q || h.text.toLowerCase().includes(q));
+    const el = $('#historyList');
+    if (!items.length) { el.innerHTML = `<div class="empty">${history.length ? 'No results' : 'No transcripts yet'}</div>`; return; }
+    el.innerHTML = '<div class="group glass">' + items.map(h =>
+      `<button class="hist" data-id="${h.id}"><div class="when">${fmt(h.date)}</div><div class="snip">${esc(h.text)}</div></button>`).join('') + '</div>';
+  }
+  $('#search').oninput = renderHistory;
+  $('#historyList').onclick = e => { const b = e.target.closest('.hist'); if (b) openSheet(+b.dataset.id); };
+
+  let openId = null;
+  function openSheet(id) {
+    const h = history.find(x => x.id === id); if (!h) return;
+    openId = id; $('#sheetWhen').textContent = fmt(h.date); $('#sheetText').textContent = h.text;
+    $('#actShare').style.display = navigator.share ? '' : 'none';
+    $('#sheetBack').classList.add('open');
+  }
+  const closeSheet = () => $('#sheetBack').classList.remove('open');
+  $('#sheetBack').onclick = e => { if (e.target.id === 'sheetBack') closeSheet(); };
+  addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+  $('#actCopy').onclick = async () => {
+    const h = history.find(x => x.id === openId);
+    try { await navigator.clipboard.writeText(h.text); $('#actCopy').textContent = 'Copied'; setTimeout(() => $('#actCopy').textContent = 'Copy', 1200); } catch {}
+  };
+  $('#actShare').onclick = () => { const h = history.find(x => x.id === openId); navigator.share({ text: h.text }).catch(() => {}); };
+  $('#actDelete').onclick = () => { history = history.filter(x => x.id !== openId); persist(); closeSheet(); renderHistory(); };
+  $('#clearAll').onclick = () => { if (confirm('Delete all saved transcripts?')) { history = []; persist(); renderHistory(); } };
+
+  /* ---------- Speech recognition ---------- */
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null, listening = false, finals = '', interim = '';
+  const live = $('#live');
+
+  function paint() {
+    if (!finals && !interim) {
+      live.innerHTML = '<span class="placeholder">' + (listening ? 'Listening…' : 'Tap Listen to start transcribing speech around you.') + '</span>';
+      return;
+    }
+    live.innerHTML = esc(finals) + (interim ? `<span class="interim"> ${esc(interim)}</span>` : '');
+    const sc = live.closest('.scroll'); sc.scrollTop = sc.scrollHeight;
+  }
+  function setStatus(t) {
+    $('#statusText').textContent = t;
+    $('#status').classList.toggle('listening', listening);
+    $('#mic').classList.toggle('on', listening);
+    $('#micLabel').textContent = listening ? 'Stop' : 'Listen';
+    $('#mic').setAttribute('aria-label', listening ? 'Stop listening' : 'Start listening');
+  }
+
+  function build() {
+    const r = new SR();
+    r.continuous = true; r.interimResults = true; r.lang = settings.lang;
+    r.onresult = e => {
+      interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finals += (finals ? ' ' : '') + t.trim(); else interim += t;
+      }
+      paint();
+    };
+    r.onerror = e => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { stop(); setStatus('Microphone access denied'); }
+    };
+    r.onend = () => { if (listening) { try { r.start(); } catch {} } }; // browsers end sessions on silence; keep going
+    return r;
+  }
+  function start() {
+    if (!SR) return;
+    finals = ''; interim = ''; rec = build();
+    try { rec.start(); } catch { return; }
+    listening = true; buzz(15); setStatus('Listening'); paint();
+  }
+  function stop() {
+    listening = false;
+    if (rec) { try { rec.stop(); } catch {} }
+    const text = (finals + ' ' + interim).trim();
+    interim = ''; finals = text; paint();
+    if (text && settings.save) { history.unshift({ id: Date.now(), date: Date.now(), text }); persist(); }
+    buzz([10, 40, 10]); setStatus(text ? 'Saved to History' : 'Ready');
+  }
+  $('#mic').onclick = () => listening ? stop() : start();
+
+  if (!SR) { $('#unsupported').hidden = false; $('#mic').disabled = true; $('#mic').style.opacity = .5; }
+  setStatus('Ready');
+  show('live');
+})();
+</script>
+</body>
+</html>
