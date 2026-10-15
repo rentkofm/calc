@@ -146,8 +146,9 @@ struct GraphView: View {
     @ViewBuilder
     private var selectionOverlay: some View {
         GeometryReader { geo in
-            if let s = selected {
-                let p = toScreen(s.x, s.y, geo.size)
+            // Hide the marker (and its label) whenever the point is panned or zoomed off the graph.
+            if let s = selected, case let p = toScreen(s.x, s.y, geo.size),
+               CGRect(origin: .zero, size: geo.size).contains(p) {
                 let color = Self.color(for: s.colorIndex)
                 ZStack {
                     Circle()
@@ -167,6 +168,7 @@ struct GraphView: View {
                 }
             }
         }
+        .clipShape(.rect(cornerRadius: 28))
         .allowsHitTesting(false)
     }
 
