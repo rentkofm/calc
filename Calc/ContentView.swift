@@ -9,6 +9,7 @@ struct ContentView: View {
         TabView {
             Tab("Calculator", systemImage: "plus.forwardslash.minus") { CalculatorView() }
             Tab("Graph", systemImage: "chart.xyaxis.line") { GraphView() }
+            Tab("3D", systemImage: "cube") { Graph3DView() }
             Tab("Convert", systemImage: "arrow.left.arrow.right") { ConverterView() }
             Tab("Settings", systemImage: "gearshape") { SettingsView() }
         }

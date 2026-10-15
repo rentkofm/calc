@@ -50,7 +50,7 @@ struct GraphView: View {
     private typealias Seg = (CGPoint, CGPoint)
 
     private static let palette: [Color] = [.blue, .orange, .green, .pink, .purple, .teal, .red, .indigo]
-    private static let chips = ["x", "y", "=", "^", "(", ")", "π", "e", "sin(", "cos(", "tan(", "ln(", "log(", "√(", "abs("]
+    static let chips = ["x", "y", "=", "^", "(", ")", "π", "e", "sin(", "cos(", "tan(", "ln(", "log(", "√(", "abs("]
 
     static func color(for index: Int) -> Color {
         if index < palette.count { return palette[index] }
@@ -136,7 +136,7 @@ struct GraphView: View {
                 MagnifyGesture()
                     .onChanged { v in
                         if scaleOrigin == nil { stopInertia(); scaleOrigin = scale }
-                        scale = min(max((scaleOrigin ?? scale) * v.magnification, 5), 4000)
+                        scale = min(max((scaleOrigin ?? scale) * v.magnification, 1e-100), 1e100)
                     }
                     .onEnded { _ in scaleOrigin = nil }
             )
@@ -224,7 +224,7 @@ struct GraphView: View {
 
         // Snap to a whole-number point if the curve passes exactly through one nearby.
         let radius = Double(22 / scale)
-        if abs(gx) < 1e9, abs(gy) < 1e9 {
+        if radius <= 25, abs(gx) < 1e9, abs(gy) < 1e9 {
             var bestDist = Double.infinity
             for nx in Int(floor(gx - radius))...Int(ceil(gx + radius)) {
                 for ny in Int(floor(gy - radius))...Int(ceil(gy + radius)) {
@@ -338,19 +338,18 @@ struct GraphView: View {
         let maxY = Double(center.y) + Double(size.height / 2 / s)
         let origin = toScreen(0, 0, size)
 
+        let xs = Self.gridValues(minX, maxX, step)
+        let ys = Self.gridValues(minY, maxY, step)
+
         if showGrid {
             var grid = Path()
-            var gx = (minX / step).rounded(.up) * step
-            while gx <= maxX {
+            for gx in xs {
                 let x = toScreen(gx, 0, size).x
                 grid.move(to: CGPoint(x: x, y: 0)); grid.addLine(to: CGPoint(x: x, y: size.height))
-                gx += step
             }
-            var gy = (minY / step).rounded(.up) * step
-            while gy <= maxY {
+            for gy in ys {
                 let y = toScreen(0, gy, size).y
                 grid.move(to: CGPoint(x: 0, y: y)); grid.addLine(to: CGPoint(x: size.width, y: y))
-                gy += step
             }
             ctx.stroke(grid, with: .color(.secondary.opacity(0.25)), lineWidth: 0.5)
         }
@@ -362,21 +361,13 @@ struct GraphView: View {
 
         let labelY = min(max(origin.y + 3, 4), size.height - 16)
         let labelX = min(max(origin.x + 4, 4), size.width - 36)
-        var lx = (minX / step).rounded(.up) * step
-        while lx <= maxX {
-            if abs(lx) > step / 2 {
-                ctx.draw(Text(Self.label(lx)).font(.caption2).foregroundStyle(.secondary),
-                         at: CGPoint(x: toScreen(lx, 0, size).x, y: labelY), anchor: .top)
-            }
-            lx += step
+        for lx in xs where abs(lx) > step / 2 {
+            ctx.draw(Text(Self.label(lx)).font(.caption2).foregroundStyle(.secondary),
+                     at: CGPoint(x: toScreen(lx, 0, size).x, y: labelY), anchor: .top)
         }
-        var ly = (minY / step).rounded(.up) * step
-        while ly <= maxY {
-            if abs(ly) > step / 2 {
-                ctx.draw(Text(Self.label(ly)).font(.caption2).foregroundStyle(.secondary),
-                         at: CGPoint(x: labelX, y: toScreen(0, ly, size).y), anchor: .leading)
-            }
-            ly += step
+        for ly in ys where abs(ly) > step / 2 {
+            ctx.draw(Text(Self.label(ly)).font(.caption2).foregroundStyle(.secondary),
+                     at: CGPoint(x: labelX, y: toScreen(0, ly, size).y), anchor: .leading)
         }
 
         for fn in functions {
@@ -389,6 +380,14 @@ struct GraphView: View {
             ctx.stroke(path, with: .color(Self.color(for: fn.colorIndex)),
                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
         }
+    }
+
+    /// Multiples of `step` inside [lo, hi]; computed by index so it can't stall at extreme zoom.
+    private static func gridValues(_ lo: Double, _ hi: Double, _ step: Double) -> [Double] {
+        guard step.isFinite, step > 0, lo.isFinite, hi.isFinite else { return [] }
+        let first = (lo / step).rounded(.up)
+        let count = min(Int(max(0, (hi / step).rounded(.down) - first)) + 1, 200)
+        return (0..<count).map { (first + Double($0)) * step }
     }
 
     private static func niceStep(_ target: Double) -> Double {
