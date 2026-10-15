@@ -566,8 +566,8 @@ struct FractalView: View {
                 if let spec = kind.detailSpec { sliderRow(spec, value: $detail) }
                 if let spec = kind.powerSpec { sliderRow(spec, value: $power) }
                 if kind.supportsMorph {
-                    sliderRow(SliderSpec(label: "Morph", range: 0...1, step: 0.01, defaultValue: kind.baseMorph), value: $morph)
-                    Text("Morph 0 = Mandelbrot form (c = pixel) · 1 = Julia form (c fixed)")
+                    sliderRow(SliderSpec(label: "Morph", range: -20...20, step: 0.05, defaultValue: kind.baseMorph), value: $morph)
+                    Text("Morph 0 = Mandelbrot form · 1 = Julia form · beyond 0–1 it extrapolates")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
