@@ -227,9 +227,7 @@ struct ComplexGraphView: View {
     @State private var dragOrigin: CGPoint?
     @State private var scaleOrigin: CGFloat?
     @State private var probe: Complex?
-    @State private var image: CGImage?
-    @State private var renderTask: Task<Void, Never>?
-    @State private var renderID = 0
+    @State private var renderer = ProgressiveRenderer()
     @State private var inertia = Inertia()
     @Environment(\.displayScale) private var displayScale
     @FocusState private var focused: Bool
@@ -265,23 +263,12 @@ struct ComplexGraphView: View {
         RenderKey(cx: Double(center.x), cy: Double(center.y), scale: Double(scale), size: size, text: text)
     }
 
-    /// Draws a quick low-res frame right away, then a native-resolution one once things settle.
     private func refresh() {
-        renderTask?.cancel()
-        renderID += 1
-        let id = renderID
-        guard let f = function else { image = nil; return }
-        let (sz, c, sc, ds) = (size, center, scale, displayScale)
-        image = ComplexRenderer.render(f, size: sz, center: c, scale: sc, cell: 5)
-        renderTask = Task {
-            try? await Task.sleep(for: .milliseconds(150))
-            if Task.isCancelled { return }
-            let cell = Raster.cell(for: sz, displayScale: ds)
-            let hi = await Task.detached(priority: .userInitiated) {
-                ComplexRenderer.render(f, size: sz, center: c, scale: sc, cell: cell)
-            }.value
-            if Task.isCancelled { return }
-            await MainActor.run { if id == renderID { image = hi } }
+        guard let f = function else { renderer.clear(); return }
+        let (sz, c, sc) = (size, center, scale)
+        renderer.request(viewport: Viewport(cx: Double(c.x), cy: Double(c.y), scale: Double(sc), size: sz),
+                         displayScale: displayScale) { cell in
+            ComplexRenderer.render(f, size: sz, center: c, scale: sc, cell: cell)
         }
     }
 
@@ -289,11 +276,8 @@ struct ComplexGraphView: View {
 
     private var plane: some View {
         ZStack {
-            if let image {
-                Image(decorative: image, scale: 1)
-                    .resizable()
-                    .interpolation(.high)
-            }
+            ViewportImage(image: renderer.image, viewport: renderer.viewport,
+                          center: center, scale: scale, size: size)
             Canvas { ctx, size in drawAxes(ctx, size) }
             probeOverlay
         }

@@ -2,19 +2,48 @@ import SwiftUI
 
 enum FractalKind: String, CaseIterable, Identifiable {
     case mandelbrot = "Mandelbrot", julia = "Julia", burningShip = "Burning Ship"
-    case tricorn = "Tricorn", multibrot = "Multibrot"
+    case tricorn = "Tricorn", multibrot = "Multibrot", quartic = "Quartic"
+    case celtic = "Celtic", perpendicular = "Perpendicular", phoenix = "Phoenix"
+    case newton = "Newton", carpet = "Carpet", sierpinski = "Sierpinski"
     var id: String { rawValue }
 
     var defaultCenter: CGPoint {
         switch self {
-        case .mandelbrot: return CGPoint(x: -0.5, y: 0)
+        case .mandelbrot, .celtic: return CGPoint(x: -0.5, y: 0)
         case .burningShip: return CGPoint(x: -0.5, y: -0.5)
+        case .perpendicular: return CGPoint(x: -0.25, y: 0)
+        case .carpet, .sierpinski: return CGPoint(x: 0.5, y: 0.5)
         default: return .zero
         }
     }
-    static let defaultScale: CGFloat = 110
+
+    var defaultScale: CGFloat {
+        switch self {
+        case .carpet, .sierpinski: return 300
+        case .phoenix: return 150
+        default: return 110
+        }
+    }
+
     /// Degree of the iterated map, used for smooth coloring.
-    var degree: Double { self == .multibrot ? 3 : 2 }
+    var degree: Double {
+        switch self {
+        case .multibrot: return 3
+        case .quartic: return 4
+        default: return 2
+        }
+    }
+
+    /// How quickly the palette cycles with the iteration count.
+    var colorFrequency: Double {
+        switch self {
+        case .carpet, .sierpinski: return 0.12
+        default: return 0.035
+        }
+    }
+
+    /// Structural fractals have a fixed depth; no point scaling iterations with zoom.
+    var isStructural: Bool { self == .carpet || self == .sierpinski }
 }
 
 enum FractalPalette: String, CaseIterable, Identifiable {
@@ -33,6 +62,15 @@ enum FractalPalette: String, CaseIterable, Identifiable {
         case .mono: return ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [1, 1, 1], [0, 0, 0])
         }
     }
+
+    func color(at t: Double, brightness: Double = 1) -> (UInt8, UInt8, UInt8) {
+        let k = coefficients
+        func channel(_ i: Int) -> UInt8 {
+            let v = k.a[i] + k.b[i] * cos(2 * Double.pi * (k.c[i] * t + k.d[i]))
+            return UInt8(min(max(v * brightness, 0), 1) * 255)
+        }
+        return (channel(0), channel(1), channel(2))
+    }
 }
 
 struct FractalParams {
@@ -48,33 +86,63 @@ enum FractalRenderer {
     static func render(_ p: FractalParams, size: CGSize, cell: CGFloat) -> CGImage? {
         let cx = Double(p.center.x), cy = Double(p.center.y), s = Double(p.scale)
         let hw = Double(size.width) / 2, hh = Double(size.height) / 2
-        let k = p.palette.coefficients
-        let twoPi = 2 * Double.pi
         return Raster.image(size: size, cell: cell) { sx, sy in
-            let mu = escape(p, x: cx + (sx - hw) / s, y: cy - (sy - hh) / s)
+            let x = cx + (sx - hw) / s, y = cy - (sy - hh) / s
+            if p.kind == .newton { return newton(p, x: x, y: y) }
+            let mu = escape(p, x: x, y: y)
             guard mu >= 0 else { return (0, 0, 0) }
-            let t = mu * 0.035
-            func channel(_ i: Int) -> UInt8 {
-                let v = k.a[i] + k.b[i] * cos(twoPi * (k.c[i] * t + k.d[i]))
-                return UInt8(min(max(v, 0), 1) * 255)
-            }
-            return (channel(0), channel(1), channel(2))
+            return p.palette.color(at: mu * p.kind.colorFrequency)
         }
+    }
+
+    /// Newton's method on z³ − 1: color by the root reached, darker the longer it took.
+    static func newton(_ p: FractalParams, x: Double, y: Double) -> (UInt8, UInt8, UInt8) {
+        let roots: [(Double, Double)] = [(1, 0), (-0.5, 0.8660254037844386), (-0.5, -0.8660254037844386)]
+        var zr = x, zi = y
+        for i in 0..<min(p.maxIter, 120) {
+            let z2r = zr * zr - zi * zi, z2i = 2 * zr * zi
+            let z3r = z2r * zr - z2i * zi, z3i = z2r * zi + z2i * zr
+            // z -= (z³ − 1) / (3z²)
+            let nr = z3r - 1, ni = z3i
+            let dr = 3 * z2r, di = 3 * z2i
+            let d = dr * dr + di * di
+            if d == 0 { return (0, 0, 0) }
+            zr -= (nr * dr + ni * di) / d
+            zi -= (ni * dr - nr * di) / d
+            for (k, r) in roots.enumerated() {
+                let dx = zr - r.0, dy = zi - r.1
+                if dx * dx + dy * dy < 1e-10 {
+                    let brightness = max(0.25, 1 - Double(i) / 30)
+                    return p.palette.color(at: Double(k) * 0.33 + 0.1, brightness: brightness)
+                }
+            }
+        }
+        return (0, 0, 0)
     }
 
     /// Smooth escape time, or -1 for points that never escape.
     static func escape(_ p: FractalParams, x: Double, y: Double) -> Double {
-        var zr: Double, zi: Double, cr: Double, ci: Double
-        if p.kind == .julia {
-            (zr, zi, cr, ci) = (x, y, p.juliaC.re, p.juliaC.im)
-        } else {
-            (zr, zi, cr, ci) = (0, 0, x, y)
+        switch p.kind {
+        case .carpet: return carpet(x, y, p.maxIter)
+        case .sierpinski: return sierpinski(x, y, p.maxIter)
+        default: break
         }
-        if p.kind == .mandelbrot {
+
+        var zr = 0.0, zi = 0.0, cr = x, ci = y
+        var pr = 0.0, pi = 0.0 // previous z, for Phoenix
+        switch p.kind {
+        case .julia:
+            (zr, zi, cr, ci) = (x, y, p.juliaC.re, p.juliaC.im)
+        case .phoenix:
+            (zr, zi, cr, ci) = (x, y, 0.5667, 0)
+        case .mandelbrot:
             // Skip the main cardioid and period-2 bulb.
             let q = (x - 0.25) * (x - 0.25) + y * y
             if q * (q + (x - 0.25)) < 0.25 * y * y || (x + 1) * (x + 1) + y * y < 0.0625 { return -1 }
+        default:
+            break
         }
+
         var i = 0
         var m = 0.0
         while i < p.maxIter {
@@ -96,11 +164,55 @@ enum FractalRenderer {
                 let nr = zr * (r2 - 3 * i2) + cr
                 zi = zi * (3 * r2 - i2) + ci
                 zr = nr
+            case .quartic:
+                let ar = r2 - i2, ai = 2 * zr * zi // z²
+                zr = ar * ar - ai * ai + cr
+                zi = 2 * ar * ai + ci
+            case .celtic:
+                let nr = abs(r2 - i2) + cr
+                zi = 2 * zr * zi + ci
+                zr = nr
+            case .perpendicular:
+                zi = -2 * abs(zr) * zi + ci
+                zr = r2 - i2 + cr
+            case .phoenix:
+                let nr = r2 - i2 + cr - 0.5 * pr
+                let ni = 2 * zr * zi - 0.5 * pi
+                (pr, pi) = (zr, zi)
+                (zr, zi) = (nr, ni)
+            default:
+                break
             }
             i += 1
         }
         if i >= p.maxIter { return -1 }
         return Double(i) + 1 - log2(0.5 * log(m)) / log2(p.kind.degree)
+    }
+
+    /// Sierpinski carpet: holes are colored by the level they appear at.
+    private static func carpet(_ x0: Double, _ y0: Double, _ maxIter: Int) -> Double {
+        guard x0 >= 0, x0 < 1, y0 >= 0, y0 < 1 else { return -1 }
+        var x = x0, y = y0
+        for level in 0..<min(maxIter, 30) { // ×3 isn't exact in binary; deeper levels are noise
+            x *= 3; y *= 3
+            let ix = floor(x), iy = floor(y)
+            if ix == 1 && iy == 1 { return Double(level) }
+            x -= ix; y -= iy
+        }
+        return -1
+    }
+
+    /// Sierpinski triangle (gasket): the removed triangles are colored by level.
+    private static func sierpinski(_ x0: Double, _ y0: Double, _ maxIter: Int) -> Double {
+        guard x0 >= 0, x0 < 1, y0 >= 0, y0 < 1 else { return -1 }
+        var x = x0, y = y0
+        for level in 0..<min(maxIter, 50) { // ×2 is exact in binary
+            x *= 2; y *= 2
+            let ix = floor(x), iy = floor(y)
+            if ix == 1 && iy == 1 { return Double(level) }
+            x -= ix; y -= iy
+        }
+        return -1
     }
 }
 
@@ -116,15 +228,15 @@ struct FractalView: View {
     @State private var palette: FractalPalette = .classic
     @State private var juliaIndex = 0
     @State private var detail = 150.0
+    @State private var zoomSpeed = 1.0 // doublings per second
     @State private var center = FractalKind.mandelbrot.defaultCenter
-    @State private var scale = FractalKind.defaultScale
+    @State private var scale = FractalKind.mandelbrot.defaultScale
     @State private var size = CGSize(width: 320, height: 320)
-    @State private var image: CGImage?
-    @State private var renderTask: Task<Void, Never>?
-    @State private var renderID = 0
+    @State private var renderer = ProgressiveRenderer()
     @State private var dragOrigin: CGPoint?
     @State private var scaleOrigin: CGFloat?
     @State private var inertia = Inertia()
+    @State private var autoZoomTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -144,7 +256,8 @@ struct FractalView: View {
     // MARK: Rendering
 
     private var maxIter: Int {
-        let zoomBoost = 60 * max(0, log2(Double(scale / FractalKind.defaultScale)))
+        if kind.isStructural { return 50 }
+        let zoomBoost = 60 * max(0, log2(Double(scale / kind.defaultScale)))
         return min(Int(detail + zoomBoost), 5000)
     }
 
@@ -167,31 +280,56 @@ struct FractalView: View {
                   cx: Double(center.x), cy: Double(center.y), scale: Double(scale), size: size)
     }
 
-    /// A quick low-res frame right away, then a native-resolution one once things settle.
     private func refresh() {
-        renderTask?.cancel()
-        renderID += 1
-        let id = renderID
-        var quick = params
-        quick.maxIter = min(quick.maxIter, 200)
-        let (full, sz, ds) = (params, size, displayScale)
-        image = FractalRenderer.render(quick, size: sz, cell: 5)
-        renderTask = Task {
-            try? await Task.sleep(for: .milliseconds(150))
-            if Task.isCancelled { return }
-            let cell = Raster.cell(for: sz, displayScale: ds)
-            let hi = await Task.detached(priority: .userInitiated) {
-                FractalRenderer.render(full, size: sz, cell: cell)
-            }.value
-            if Task.isCancelled { return }
-            await MainActor.run { if id == renderID { image = hi } }
+        let full = params
+        let sz = size
+        renderer.request(viewport: Viewport(cx: Double(center.x), cy: Double(center.y),
+                                            scale: Double(scale), size: sz),
+                         displayScale: displayScale) { cell in
+            var p = full
+            if cell > 2 { p.maxIter = min(p.maxIter, 800) } // keep the in-motion frames quick
+            return FractalRenderer.render(p, size: sz, cell: cell)
         }
     }
 
-    private func reset() {
+    // MARK: Motion
+
+    private func stopMotion() {
         inertia.stop()
+        autoZoomTask?.cancel()
+        autoZoomTask = nil
+    }
+
+    private func reset() {
+        stopMotion()
         center = kind.defaultCenter
-        scale = FractalKind.defaultScale
+        scale = kind.defaultScale
+    }
+
+    /// Zooms toward `point` at a constant exponential rate, easing the point to the middle of the view.
+    private func startAutoZoom(at point: CGPoint) {
+        stopMotion()
+        let target = CGPoint(x: center.x + (point.x - size.width / 2) / scale,
+                             y: center.y - (point.y - size.height / 2) / scale)
+        var screen = point
+        Haptics.tap()
+        autoZoomTask = Task { @MainActor in
+            var last = ContinuousClock.now
+            while !Task.isCancelled && scale < 1e13 {
+                try? await Task.sleep(for: .milliseconds(16))
+                if Task.isCancelled { return }
+                let now = ContinuousClock.now
+                let dt = min(0.05, (now - last) / .seconds(1))
+                last = now
+                let ease = CGFloat(1 - exp(-3 * dt))
+                screen.x += (size.width / 2 - screen.x) * ease
+                screen.y += (size.height / 2 - screen.y) * ease
+                scale *= CGFloat(pow(2, zoomSpeed * dt))
+                center = CGPoint(x: target.x - (screen.x - size.width / 2) / scale,
+                                 y: target.y + (screen.y - size.height / 2) / scale)
+            }
+            autoZoomTask = nil
+        }
     }
 
     // MARK: Views
@@ -199,16 +337,13 @@ struct FractalView: View {
     private var canvas: some View {
         ZStack {
             Color.black
-            if let image {
-                Image(decorative: image, scale: 1)
-                    .resizable()
-                    .interpolation(.high)
-            }
+            ViewportImage(image: renderer.image, viewport: renderer.viewport,
+                          center: center, scale: scale, size: size)
         }
         .frame(minHeight: 220)
         .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { size = $0 })
         .overlay(alignment: .bottomLeading) {
-            Text("\(formatNumber(Double(scale / FractalKind.defaultScale), digits: 3))× · \(maxIter) iterations")
+            Text("\(formatNumber(Double(scale / kind.defaultScale), digits: 3))× · \(maxIter) iterations")
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .padding(.horizontal, 10)
@@ -222,7 +357,7 @@ struct FractalView: View {
         .gesture(
             DragGesture(minimumDistance: 3)
                 .onChanged { v in
-                    if dragOrigin == nil { inertia.stop(); dragOrigin = center }
+                    if dragOrigin == nil { stopMotion(); dragOrigin = center }
                     let o = dragOrigin ?? center
                     center = CGPoint(x: o.x - v.translation.width / scale,
                                      y: o.y + v.translation.height / scale)
@@ -238,13 +373,17 @@ struct FractalView: View {
         .simultaneousGesture(
             MagnifyGesture()
                 .onChanged { v in
-                    if scaleOrigin == nil { inertia.stop(); scaleOrigin = scale }
-                    scale = min(max((scaleOrigin ?? scale) * v.magnification, 20), 1e13)
+                    if scaleOrigin == nil { stopMotion(); scaleOrigin = scale }
+                    scale = min(max((scaleOrigin ?? scale) * v.magnification, 10), 1e13)
                 }
                 .onEnded { _ in scaleOrigin = nil }
         )
-        .onTapGesture(count: 2) { withAnimation(.smooth) { reset() } }
-        .onTapGesture { inertia.stop() }
+        // Touching the view stops any coasting or auto-zoom.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in if inertia.running || autoZoomTask != nil { stopMotion() } }
+        )
+        .onTapGesture(count: 3) { location in startAutoZoom(at: location) }
     }
 
     private var kindChips: some View {
@@ -279,7 +418,6 @@ struct FractalView: View {
                 }
                 .pickerStyle(.menu)
                 .tint(accent)
-                Spacer()
                 if kind == .julia {
                     Picker("c", selection: $juliaIndex) {
                         ForEach(Self.juliaPresets.indices, id: \.self) { i in
@@ -291,12 +429,34 @@ struct FractalView: View {
                     .pickerStyle(.menu)
                     .tint(accent)
                 }
+                Spacer()
+                Button {
+                    withAnimation(.smooth) { reset() }
+                } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 34)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: Capsule())
+            }
+            if !kind.isStructural {
+                HStack(spacing: 12) {
+                    Text("Detail").foregroundStyle(.secondary)
+                    Slider(value: $detail, in: 50...1000, step: 10)
+                }
             }
             HStack(spacing: 12) {
-                Text("Detail").foregroundStyle(.secondary)
-                Slider(value: $detail, in: 50...1000, step: 10)
+                Text("Auto-zoom").foregroundStyle(.secondary)
+                Slider(value: $zoomSpeed, in: 0.25...5)
+                Text("\(formatNumber(pow(2, zoomSpeed), digits: 3))×/s")
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 52, alignment: .trailing)
             }
-            Text("Drag to pan · pinch to zoom · double-tap to reset")
+            Text("Triple-tap a point to zoom into it · touch to stop")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

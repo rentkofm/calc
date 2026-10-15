@@ -99,3 +99,104 @@ enum ComplexRenderer {
         return (UInt8(rgb.0 * 255), UInt8(rgb.1 * 255), UInt8(rgb.2 * 255))
     }
 }
+
+// MARK: - Progressive rendering
+
+/// The region of the plane an image was rendered for.
+struct Viewport: Equatable {
+    var cx: Double = 0
+    var cy: Double = 0
+    var scale: Double = 1
+    var size: CGSize = .zero
+}
+
+/// Keeps the screen filled while a view is panned or zoomed:
+/// a coarse frame is rendered continuously in the background (latest request wins),
+/// and a native-resolution frame follows once things have been still for a moment.
+@Observable
+final class ProgressiveRenderer {
+    private(set) var image: CGImage?
+    private(set) var viewport = Viewport()
+
+    private struct Request {
+        var generation: Int
+        var viewport: Viewport
+        var job: (CGFloat) -> CGImage?
+    }
+
+    private var generation = 0
+    private var shownGeneration = -1
+    private var quickInFlight = false
+    private var pending: Request?
+    private var hiResTask: Task<Void, Never>?
+
+    func clear() {
+        generation += 1
+        shownGeneration = generation
+        pending = nil
+        hiResTask?.cancel()
+        image = nil
+    }
+
+    /// `job` renders the image for a given pixel size in points (smaller = sharper).
+    func request(viewport: Viewport, displayScale: CGFloat, job: @escaping (_ cell: CGFloat) -> CGImage?) {
+        generation += 1
+        let req = Request(generation: generation, viewport: viewport, job: job)
+        pending = req
+        hiResTask?.cancel()
+        pumpQuick()
+
+        hiResTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            if Task.isCancelled { return }
+            let cell = Raster.cell(for: viewport.size, displayScale: displayScale)
+            let img = await Task.detached(priority: .userInitiated) { job(cell) }.value
+            guard let self, !Task.isCancelled, req.generation == self.generation else { return }
+            self.show(img, viewport, req.generation)
+        }
+    }
+
+    private func pumpQuick() {
+        guard !quickInFlight, let req = pending else { return }
+        pending = nil
+        quickInFlight = true
+        Task { @MainActor [weak self] in
+            let img = await Task.detached(priority: .userInitiated) { req.job(3) }.value
+            guard let self else { return }
+            self.quickInFlight = false
+            self.show(img, req.viewport, req.generation)
+            self.pumpQuick() // catch up if the view moved while this frame was rendering
+        }
+    }
+
+    private func show(_ img: CGImage?, _ vp: Viewport, _ gen: Int) {
+        guard let img, gen >= shownGeneration else { return }
+        shownGeneration = gen
+        image = img
+        viewport = vp
+    }
+}
+
+/// Draws a rendered image, re-positioned and scaled to the *current* viewport, so panning and
+/// zooming stay fluid even though the pixels are a frame or two behind.
+struct ViewportImage: View {
+    let image: CGImage?
+    let viewport: Viewport
+    let center: CGPoint
+    let scale: CGFloat
+    let size: CGSize
+
+    var body: some View {
+        if let image, viewport.scale > 0 {
+            let k = scale / CGFloat(viewport.scale)
+            if k > 1e-3, k < 500 {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .interpolation(.medium)
+                    .frame(width: viewport.size.width * k, height: viewport.size.height * k)
+                    .position(x: size.width / 2 + CGFloat(viewport.cx - Double(center.x)) * scale,
+                              y: size.height / 2 - CGFloat(viewport.cy - Double(center.y)) * scale)
+            }
+        }
+    }
+}
