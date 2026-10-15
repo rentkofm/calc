@@ -24,10 +24,9 @@ final class CalculatorModel {
     }
 
     private static let continuations: Set<String> = ["+", "−", "×", "÷", "^", "%", "!", "^2", "^(-1)"]
-    private static let tokens = [
-        "asin(", "acos(", "atan(", "sinh(", "cosh(", "tanh(", "sin(", "cos(", "tan(",
-        "ln(", "log(", "log2(", "√(", "∛(", "exp(", "abs(", "("
-    ]
+    /// Function names (with their opening bracket) that backspace removes in one go, longest first.
+    private static let tokens: [String] = (Parser.callNames.map { $0 + "(" } + ["nCr(", "nPr(", "√(", "∛(", "("])
+        .sorted { $0.count > $1.count }
 
     func input(_ s: String) {
         if justEvaluated {
@@ -35,6 +34,13 @@ final class CalculatorModel {
             if !Self.continuations.contains(s) { expression = "" }
         }
         expression += s
+        refresh()
+    }
+
+    /// Replaces the whole expression (used by the examples in the advanced panel).
+    func replace(with text: String) {
+        justEvaluated = false
+        expression = text
         refresh()
     }
 

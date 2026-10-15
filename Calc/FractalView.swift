@@ -19,6 +19,9 @@ struct FractalView: View {
 
     @State private var center: Center = FractalKind.mandelbrot.defaultCenter
     @State private var scale: CGFloat = FractalKind.mandelbrot.defaultScale
+    @State private var rotation = 0.0 // two-finger twist of the 2D view
+    @State private var roll = 0.0      // the same twist, as camera roll in 3D
+    @State private var twistOrigin: Double?
     @State private var yaw = 0.6
     @State private var pitch = 0.35
     @State private var dist = 3.0
@@ -83,12 +86,13 @@ struct FractalView: View {
 
     private var params: FractalParams {
         FractalParams(kind: kind, palette: palette, coloring: coloring, center: center, scale: scale,
-                      maxIter: maxIter, juliaC: Self.juliaPresets[juliaIndex], power: power, variant: variant)
+                      maxIter: maxIter, juliaC: Self.juliaPresets[juliaIndex], power: power, variant: variant,
+                      rotation: rotation)
     }
 
     private var ray3DParams: Ray3DParams {
         Ray3DParams(kind: kind, palette: palette, yaw: yaw, pitch: pitch, dist: dist, target: target,
-                    power: power, iterations: Int(detail))
+                    power: power, iterations: Int(detail), roll: roll)
     }
 
     private struct RenderKey: Equatable {
@@ -106,22 +110,38 @@ struct FractalView: View {
         var pitch: Double
         var dist: Double
         var target: SIMD3<Double>
+        var rotation: Double
+        var roll: Double
+        var accent: [Double]
     }
 
     private var renderKey: RenderKey {
         RenderKey(kind: kind, palette: palette, coloring: coloring, juliaIndex: juliaIndex, variant: variant,
                   detail: detail, power: power, center: center, scale: Double(scale), size: size,
-                  yaw: yaw, pitch: pitch, dist: dist, target: target)
+                  yaw: yaw, pitch: pitch, dist: dist, target: target, rotation: rotation, roll: roll,
+                  accent: accentComponents)
     }
 
     // MARK: Rendering
 
+    private var accentComponents: [Double] {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(accent).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return [Double(r), Double(g), Double(b)]
+    }
+
+    private func publishAccent() {
+        let c = accentComponents
+        FractalPalette.accentRGB = (c[0], c[1], c[2])
+    }
+
     private func refresh() {
+        publishAccent()
         let sz = size
         switch kind.style {
         case .raster:
             let full = params
-            renderer.request(viewport: Viewport(center: center, scale: Double(scale), size: sz),
+            renderer.request(viewport: Viewport(center: center, scale: Double(scale), size: sz, rotation: rotation),
                              displayScale: displayScale) { cell in
                 var p = full
                 if cell > 2 { p.maxIter = min(p.maxIter, 800) } // keep the in-motion frames quick
@@ -135,7 +155,7 @@ struct FractalView: View {
                 Fractal3D.render(rp, size: sz, cell: cell >= 2 ? max(cell, 4) : max(cell, 1.2))
             }
         case .accumulate:
-            accumulator.start(viewport: Viewport(center: center, scale: Double(scale), size: sz),
+            accumulator.start(viewport: Viewport(center: center, scale: Double(scale), size: sz, rotation: rotation),
                               spec: Accumulate.spec(for: params))
         case .vector:
             break // drawn live by the canvas
@@ -157,6 +177,8 @@ struct FractalView: View {
     }
 
     private func resetCamera() {
+        rotation = 0
+        roll = 0
         yaw = 0.6
         pitch = 0.35
         dist = kind.defaultDistance
@@ -172,6 +194,12 @@ struct FractalView: View {
 
     // MARK: Motion
 
+    /// Converts a screen-space offset (points, y up) into plane units, honoring the twist.
+    private func planeOffset(_ sx: Double, _ syUp: Double) -> (Double, Double) {
+        let c = cos(rotation), s = sin(rotation), k = Double(scale)
+        return ((sx * c - syUp * s) / k, (sx * s + syUp * c) / k)
+    }
+
     private func stopMotion() {
         inertia.stop()
         autoZoomTask?.cancel()
@@ -184,8 +212,8 @@ struct FractalView: View {
         if kind.style == .ray3D { startAutoDolly(at: point); return }
 
         // Zoom toward `point` at a constant exponential rate, easing it to the middle of the view.
-        let zoomTarget = center.moved(dx: Double((point.x - size.width / 2) / scale),
-                                      dy: -Double((point.y - size.height / 2) / scale))
+        let first = planeOffset(Double(point.x - size.width / 2), -Double(point.y - size.height / 2))
+        let zoomTarget = center.moved(dx: first.0, dy: first.1)
         var screen = point
         autoZoomTask = Task { @MainActor in
             var last = ContinuousClock.now
@@ -199,8 +227,8 @@ struct FractalView: View {
                 screen.x += (size.width / 2 - screen.x) * ease
                 screen.y += (size.height / 2 - screen.y) * ease
                 scale *= CGFloat(pow(2, zoomSpeed * dt))
-                center = zoomTarget.moved(dx: -Double((screen.x - size.width / 2) / scale),
-                                          dy: Double((screen.y - size.height / 2) / scale))
+                let o = planeOffset(Double(screen.x - size.width / 2), -Double(screen.y - size.height / 2))
+                center = zoomTarget.moved(dx: -o.0, dy: -o.1)
             }
             autoZoomTask = nil
         }
@@ -293,12 +321,15 @@ struct FractalView: View {
             switch kind.style {
             case .raster:
                 ViewportImage(image: renderer.image, viewport: renderer.viewport,
-                              center: center, scale: scale, size: size)
+                              center: center, scale: scale, size: size, rotation: rotation)
             case .accumulate:
                 ViewportImage(image: accumulator.image, viewport: accumulator.viewport,
-                              center: center, scale: scale, size: size)
+                              center: center, scale: scale, size: size, rotation: rotation)
             case .vector:
-                Canvas { ctx, sz in VectorFractals.draw(ctx, size: sz, p: params) }
+                Canvas { ctx, sz in
+                    publishAccent()
+                    VectorFractals.draw(ctx, size: sz, p: params)
+                }
             case .ray3D:
                 if let image = renderer.image {
                     Image(decorative: image, scale: 1)
@@ -364,8 +395,8 @@ struct FractalView: View {
                         } else {
                             if dragOrigin == nil { stopMotion(); dragOrigin = center }
                             let o = dragOrigin ?? center
-                            center = o.moved(dx: -Double(v.translation.width / scale),
-                                             dy: Double(v.translation.height / scale))
+                            let d = planeOffset(Double(v.translation.width), -Double(v.translation.height))
+                            center = o.moved(dx: -d.0, dy: -d.1)
                         }
                     }
                     .onEnded { v in
@@ -376,7 +407,8 @@ struct FractalView: View {
                                 yaw -= dx * 0.008
                                 pitch = min(max(pitch + dy * 0.008, -1.5), 1.5)
                             } else {
-                                center = center.moved(dx: -dx / Double(scale), dy: dy / Double(scale))
+                                let d = planeOffset(dx, -dy)
+                                center = center.moved(dx: -d.0, dy: -d.1)
                             }
                         }
                     }
@@ -393,6 +425,19 @@ struct FractalView: View {
                         }
                     }
                     .onEnded { _ in scaleOrigin = nil; distOrigin = nil }
+            )
+            // Two-finger twist: rotates the view (2D) or rolls the camera (3D).
+            .simultaneousGesture(
+                RotateGesture()
+                    .onChanged { v in
+                        if twistOrigin == nil {
+                            stopMotion()
+                            twistOrigin = kind.style == .ray3D ? roll : rotation
+                        }
+                        let angle = (twistOrigin ?? 0) + v.rotation.radians
+                        if kind.style == .ray3D { roll = angle } else { rotation = angle }
+                    }
+                    .onEnded { _ in twistOrigin = nil }
             )
             // Tap to catch coasting.
             .simultaneousGesture(

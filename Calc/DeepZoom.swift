@@ -271,9 +271,11 @@ extension FractalRenderer {
         let hw = Double(size.width) / 2, hh = Double(size.height) / 2
         let info = OrbitCache.shared.orbit(for: p, size: size)
         let isJulia = p.kind == .julia
+        let cosR = cos(p.rotation), sinR = sin(p.rotation)
         return Raster.image(size: size, cell: cell) { sx, sy in
-            let ox = (sx - hw) / s + info.dx
-            let oy = -(sy - hh) / s + info.dy
+            let a = sx - hw, b = -(sy - hh)
+            let ox = (a * cosR - b * sinR) / s + info.dx
+            let oy = (a * sinR + b * cosR) / s + info.dy
             let mu = isJulia
                 ? perturb(info.orbit, d0: (ox, oy), dc: (0, 0), maxIter: p.maxIter)
                 : perturb(info.orbit, d0: (0, 0), dc: (ox, oy), maxIter: p.maxIter)

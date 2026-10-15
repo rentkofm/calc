@@ -7,19 +7,25 @@ enum VectorFractals {
     struct View2D {
         var cx: Double, cy: Double, s: Double
         var hw: Double, hh: Double
+        let cosR: Double, sinR: Double
 
-        init(center: Center, scale: Double, size: CGSize) {
+        init(center: Center, scale: Double, size: CGSize, rotation: Double = 0) {
             cx = center.doubleX; cy = center.doubleY; s = scale
             hw = Double(size.width) / 2; hh = Double(size.height) / 2
+            cosR = cos(rotation); sinR = sin(rotation)
         }
 
-        var minX: Double { cx - hw / s }
-        var maxX: Double { cx + hw / s }
-        var minY: Double { cy - hh / s }
-        var maxY: Double { cy + hh / s }
+        // Bounding box (in plane units) of the possibly rotated screen.
+        private var halfW: Double { (abs(hw * cosR) + abs(hh * sinR)) / s }
+        private var halfH: Double { (abs(hw * sinR) + abs(hh * cosR)) / s }
+        var minX: Double { cx - halfW }
+        var maxX: Double { cx + halfW }
+        var minY: Double { cy - halfH }
+        var maxY: Double { cy + halfH }
 
         func point(_ x: Double, _ y: Double) -> CGPoint {
-            CGPoint(x: hw + (x - cx) * s, y: hh - (y - cy) * s)
+            let ox = (x - cx) * s, oy = (y - cy) * s
+            return CGPoint(x: hw + ox * cosR + oy * sinR, y: hh - (-ox * sinR + oy * cosR))
         }
 
         func intersects(minx: Double, maxx: Double, miny: Double, maxy: Double) -> Bool {
@@ -28,7 +34,7 @@ enum VectorFractals {
     }
 
     static func draw(_ ctx: GraphicsContext, size: CGSize, p: FractalParams) {
-        let v = View2D(center: p.center, scale: Double(p.scale), size: size)
+        let v = View2D(center: p.center, scale: Double(p.scale), size: size, rotation: p.rotation)
         switch p.kind {
         case .hilbert, .peano: drawSpaceFilling(ctx, size, v, p)
         case .pythagoras: drawPythagoras(ctx, size, v, p)
@@ -138,7 +144,7 @@ enum VectorFractals {
         b.square(V(-0.5, 0), V(0.5, 0), 0)
         for (d, path) in b.buckets.enumerated() {
             let t = Double(d) / Double(max(depth, 1))
-            ctx.fill(path, with: .color(p.palette.swiftUIColor(at: p.palette == .deepBlue ? 0.35 + 0.6 * t : t)))
+            ctx.fill(path, with: .color(p.palette.swiftUIColor(at: p.palette.isGradient ? 0.35 + 0.6 * t : t)))
             ctx.stroke(path, with: .color(.black.opacity(0.35)), lineWidth: 0.5)
         }
     }
@@ -210,7 +216,7 @@ enum VectorFractals {
         b.grow(outer, right, left, bottom, 2)
         for (d, path) in b.buckets.enumerated() where !path.isEmpty {
             let t = Double(d) * 0.07
-            ctx.fill(path, with: .color(p.palette.swiftUIColor(at: p.palette == .deepBlue ? 0.35 + 0.6 * min(1, t) : t).opacity(0.85)))
+            ctx.fill(path, with: .color(p.palette.swiftUIColor(at: p.palette.isGradient ? 0.35 + 0.6 * min(1, t) : t).opacity(0.85)))
             ctx.stroke(path, with: .color(.black.opacity(0.45)), lineWidth: 0.5)
         }
     }
@@ -313,7 +319,7 @@ enum VectorFractals {
         }
         for (level, path) in buckets.enumerated() where !path.isEmpty {
             let t = Double(level) / 7
-            let color = p.palette.swiftUIColor(at: p.palette == .deepBlue ? 0.45 + 0.5 * t : t)
+            let color = p.palette.swiftUIColor(at: p.palette.isGradient ? 0.45 + 0.5 * t : t)
             ctx.stroke(path, with: .color(color),
                        style: StrokeStyle(lineWidth: max(0.8, 2.6 - Double(level) * 0.3), lineCap: .round, lineJoin: .round))
         }

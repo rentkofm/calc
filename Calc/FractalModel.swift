@@ -251,7 +251,7 @@ enum FractalKind: String, CaseIterable, Identifiable {
 // MARK: - Palettes
 
 enum FractalPalette: String, CaseIterable, Identifiable {
-    case deepBlue = "Deep Blue", classic = "Classic", fire = "Fire", ocean = "Ocean"
+    case deepBlue = "Deep Blue", accent = "Accent", classic = "Classic", fire = "Fire", ocean = "Ocean"
     case ultraviolet = "Ultraviolet", forest = "Forest", mono = "Mono"
     var id: String { rawValue }
 
@@ -264,7 +264,7 @@ enum FractalPalette: String, CaseIterable, Identifiable {
         case .ultraviolet: return ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [2, 1, 0], [0.5, 0.2, 0.25])
         case .forest: return ([0.2, 0.5, 0.2], [0.2, 0.4, 0.2], [1, 1, 1], [0, 0.1, 0.2])
         case .mono: return ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [1, 1, 1], [0, 0, 0])
-        case .deepBlue: return ([0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]) // gradient palette, see below
+        case .deepBlue, .accent: return ([0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]) // gradient palettes, see below
         }
     }
 
@@ -279,9 +279,30 @@ enum FractalPalette: String, CaseIterable, Identifiable {
         (1.00, 1.00, 1.00, 1.00),
     ]
 
+    /// The app's accent color as RGB (0...1); set by the fractal view before it renders.
+    static var accentRGB: (Double, Double, Double) = (1.0, 0.584, 0.0)
+
+    var isGradient: Bool { self == .deepBlue || self == .accent }
+
+    /// Same shape as Deep Blue, built from the accent color: black → dark → full color → pale tint → white.
+    private var stops: [(t: Double, r: Double, g: Double, b: Double)] {
+        guard self == .accent else { return Self.deepBlueStops }
+        let (r, g, b) = Self.accentRGB
+        func tint(_ k: Double) -> (Double, Double, Double) { (r + (1 - r) * k, g + (1 - g) * k, b + (1 - b) * k) }
+        let a = tint(0.45), z = tint(0.82)
+        return [
+            (0.00, 0.00, 0.00, 0.00),
+            (0.30, r * 0.28, g * 0.28, b * 0.28),
+            (0.55, r * 0.80, g * 0.80, b * 0.80),
+            (0.75, a.0, a.1, a.2),
+            (0.90, z.0, z.1, z.2),
+            (1.00, 1.00, 1.00, 1.00),
+        ]
+    }
+
     private func gradient(_ t: Double, brightness: Double) -> (UInt8, UInt8, UInt8) {
         let u = t - floor(t)
-        let stops = Self.deepBlueStops
+        let stops = self.stops
         var i = 0
         while i < stops.count - 2 && u > stops[i + 1].t { i += 1 }
         let a = stops[i], b = stops[i + 1]
@@ -292,7 +313,7 @@ enum FractalPalette: String, CaseIterable, Identifiable {
 
     /// Color for a smooth escape-time value.
     func color(forMu mu: Double, frequency: Double, brightness: Double = 1) -> (UInt8, UInt8, UInt8) {
-        if self == .deepBlue {
+        if isGradient {
             // Wider bands, and an ease-out curve so more of each band is pale: the glow fades to white
             // over a larger area as the boundary gets closer.
             let v = max(0, log2(max(mu, 0) + 1) - 1) / 5.5
@@ -302,7 +323,7 @@ enum FractalPalette: String, CaseIterable, Identifiable {
     }
 
     func color(at t: Double, brightness: Double = 1) -> (UInt8, UInt8, UInt8) {
-        if self == .deepBlue { return gradient(t, brightness: brightness) }
+        if isGradient { return gradient(t, brightness: brightness) }
         let k = coefficients
         func channel(_ i: Int) -> UInt8 {
             let v = k.a[i] + k.b[i] * cos(2 * Double.pi * (k.c[i] * t + k.d[i]))
@@ -320,7 +341,7 @@ enum FractalPalette: String, CaseIterable, Identifiable {
     func lineColors(_ n: Int) -> [Color] {
         (0..<max(n, 2)).map { i in
             let f = Double(i) / Double(max(n - 1, 1))
-            return swiftUIColor(at: self == .deepBlue ? 0.5 + 0.48 * f : f)
+            return swiftUIColor(at: isGradient ? 0.5 + 0.48 * f : f)
         }
     }
 }
@@ -335,4 +356,5 @@ struct FractalParams {
     var juliaC: (re: Double, im: Double)
     var power: Double = 2
     var variant: Int = 0
+    var rotation: Double = 0
 }

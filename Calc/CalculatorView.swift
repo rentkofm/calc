@@ -53,6 +53,7 @@ struct CalculatorView: View {
     @State private var model = CalculatorModel()
     @State private var second = false
     @State private var showHistory = false
+    @State private var showAdvanced = false
 
     @Environment(\.appAccent) private var accent
     @AppStorage("angle") private var angle: AngleMode = .degrees
@@ -76,6 +77,7 @@ struct CalculatorView: View {
         .onChange(of: angle) { sync() }
         .onChange(of: precision) { sync() }
         .sheet(isPresented: $showHistory) { historySheet }
+        .sheet(isPresented: $showAdvanced) { AdvancedMathSheet(model: model) }
     }
 
     private func sync() {
@@ -88,6 +90,7 @@ struct CalculatorView: View {
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
                 pill(systemImage: "clock.arrow.circlepath") { showHistory = true }
+                pill(systemImage: "sum") { showAdvanced = true }
                 Spacer()
                 pill(text: angle.label) { angle = angle == .degrees ? .radians : .degrees }
                 pill(systemImage: "function", active: showScientific) {

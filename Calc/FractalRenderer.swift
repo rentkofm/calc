@@ -10,8 +10,10 @@ enum FractalRenderer {
         if p.kind.supportsDeepZoom && p.scale > 1e9 { return renderDeep(p, size: size, cell: cell) }
         let cx = p.center.doubleX, cy = p.center.doubleY, s = Double(p.scale)
         let hw = Double(size.width) / 2, hh = Double(size.height) / 2
+        let cosR = cos(p.rotation), sinR = sin(p.rotation)
         return Raster.image(size: size, cell: cell) { sx, sy in
-            let x = cx + (sx - hw) / s, y = cy - (sy - hh) / s
+            let ox = sx - hw, oy = -(sy - hh)
+            let x = cx + (ox * cosR - oy * sinR) / s, y = cy + (ox * sinR + oy * cosR) / s
             switch p.kind {
             case .newton, .newton4, .newton5, .newtonChaos, .halley:
                 return newtonBasin(p, x: x, y: y)

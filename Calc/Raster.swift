@@ -116,6 +116,7 @@ struct Viewport: Equatable {
     var center = Center(x: 0, y: 0)
     var scale: Double = 1
     var size: CGSize = .zero
+    var rotation: Double = 0
 }
 
 /// Keeps the screen filled while a view is panned or zoomed:
@@ -193,18 +194,23 @@ struct ViewportImage: View {
     let center: Center
     let scale: CGFloat
     let size: CGSize
+    var rotation: Double = 0
 
     var body: some View {
         if let image, viewport.scale > 0 {
             let k = scale / CGFloat(viewport.scale)
             if k > 1e-3, k < 500 {
+                // Where the image's centre now sits on screen, with the view rotated by `rotation`.
                 let d = viewport.center.difference(from: center)
+                let cr = cos(rotation), sr = sin(rotation)
+                let ox = Double(scale) * (d.dx * cr + d.dy * sr)
+                let oy = Double(scale) * (-d.dx * sr + d.dy * cr)
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .interpolation(.medium)
                     .frame(width: viewport.size.width * k, height: viewport.size.height * k)
-                    .position(x: size.width / 2 + CGFloat(d.dx) * scale,
-                              y: size.height / 2 - CGFloat(d.dy) * scale)
+                    .rotationEffect(.radians(rotation - viewport.rotation))
+                    .position(x: size.width / 2 + CGFloat(ox), y: size.height / 2 - CGFloat(oy))
             }
         }
     }

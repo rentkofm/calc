@@ -9,6 +9,7 @@ struct Ray3DParams {
     var target: SIMD3<Double>
     var power: Double       // Mandelbulb power / Mandelbox scale
     var iterations: Int
+    var roll: Double = 0
 }
 
 /// CPU ray-marcher for the Mandelbulb and Mandelbox, using distance estimators.
@@ -36,7 +37,8 @@ enum Fractal3D {
         let fwd = -dir
         let right = normalize(cross(fwd, V3(0, 1, 0)))
         let up = cross(right, fwd)
-        return Camera(pos: p.target + dir * p.dist, fwd: fwd, right: right, up: up)
+        let cr = cos(p.roll), sr = sin(p.roll)
+        return Camera(pos: p.target + dir * p.dist, fwd: fwd, right: right * cr + up * sr, up: up * cr - right * sr)
     }
 
     static func cameraPosition(_ p: Ray3DParams) -> V3 { camera(p).pos }

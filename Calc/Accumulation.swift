@@ -27,10 +27,13 @@ struct PlotMap {
     let hw: Double, hh: Double
     let kx: Double, ky: Double
     let w: Int, h: Int
+    let cosR: Double, sinR: Double
 
-    init(center: Center, scale: Double, size: CGSize, w: Int, h: Int) {
+    init(center: Center, scale: Double, rotation: Double, size: CGSize, w: Int, h: Int) {
         cx = center.doubleX
         cy = center.doubleY
+        cosR = cos(rotation)
+        sinR = sin(rotation)
         self.scale = scale
         hw = Double(size.width) / 2
         hh = Double(size.height) / 2
@@ -42,8 +45,9 @@ struct PlotMap {
 
     /// `u` runs along the screen's x axis, `v` along its y axis (both in plane units).
     func index(u: Double, v: Double) -> Int? {
-        let sx = (hw + (u - cx) * scale) * kx
-        let sy = (hh - (v - cy) * scale) * ky
+        let ox = (u - cx) * scale, oy = (v - cy) * scale
+        let sx = (hw + ox * cosR + oy * sinR) * kx
+        let sy = (hh - (-ox * sinR + oy * cosR)) * ky
         guard sx >= 0, sx < Double(w), sy >= 0, sy < Double(h) else { return nil }
         return Int(sy) * w + Int(sx)
     }
@@ -83,7 +87,7 @@ final class AccumulationRenderer {
 
         let cell: CGFloat = 1
         let w = max(1, Int(vp.size.width / cell)), h = max(1, Int(vp.size.height / cell))
-        let map = PlotMap(center: vp.center, scale: vp.scale, size: vp.size, w: w, h: h)
+        let map = PlotMap(center: vp.center, scale: vp.scale, rotation: vp.rotation, size: vp.size, w: w, h: h)
         let n = w * h * spec.channels
 
         task = Task { @MainActor [weak self] in
