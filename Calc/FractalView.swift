@@ -334,17 +334,39 @@ struct FractalView: View {
     @State private var scaleOrigin: CGFloat?
     @State private var inertia = Inertia()
     @State private var autoZoomTask: Task<Void, Never>?
+    @State private var isFullscreen = false
 
     var body: some View {
         VStack(spacing: 12) {
             canvas
-            kindChips
-            controls
+            if !isFullscreen {
+                kindChips
+                controls
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-        .frame(maxWidth: 720)
+        .padding(.horizontal, isFullscreen ? 0 : 16)
+        .padding(.bottom, isFullscreen ? 0 : 8)
+        .frame(maxWidth: isFullscreen ? .infinity : 720)
         .frame(maxWidth: .infinity)
+        .overlay(alignment: .topTrailing) {
+            if isFullscreen {
+                Button {
+                    withAnimation(.smooth) { isFullscreen = false }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: Circle())
+                .padding(12)
+                .accessibilityLabel("Close full screen")
+            }
+        }
+        .toolbar(isFullscreen ? .hidden : .automatic, for: .tabBar)
+        .toolbar(isFullscreen ? .hidden : .automatic, for: .navigationBar)
+        .statusBarHidden(isFullscreen)
         .onChange(of: renderKey) { refresh() }
         .onChange(of: kind) { reset() }
         .onAppear { refresh() }
@@ -440,17 +462,36 @@ struct FractalView: View {
         .frame(minHeight: 220)
         .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { size = $0 })
         .overlay(alignment: .bottomLeading) {
-            Text("\(formatNumber(Double(scale / kind.defaultScale), digits: 3))× · \(maxIter) iterations")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .glassEffect(.regular, in: Capsule())
-                .padding(10)
-                .allowsHitTesting(false)
+            if !isFullscreen {
+                Text("\(formatNumber(Double(scale / kind.defaultScale), digits: 3))× · \(maxIter) iterations")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .glassEffect(.regular, in: Capsule())
+                    .padding(10)
+                    .allowsHitTesting(false)
+            }
         }
-        .clipShape(.rect(cornerRadius: 28))
-        .glassEffect(.regular, in: .rect(cornerRadius: 28))
+        .overlay(alignment: .topTrailing) {
+            if !isFullscreen {
+                Button {
+                    withAnimation(.smooth) { isFullscreen = true }
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: Circle())
+                .padding(10)
+                .accessibilityLabel("Full screen")
+            }
+        }
+        .clipShape(.rect(cornerRadius: isFullscreen ? 0 : 28))
+        .glassEffect(isFullscreen ? .identity : .regular, in: .rect(cornerRadius: isFullscreen ? 0 : 28))
+        .ignoresSafeArea(isFullscreen ? .all : [])
         .gesture(
             DragGesture(minimumDistance: 3)
                 .onChanged { v in
