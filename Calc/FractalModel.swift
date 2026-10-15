@@ -185,6 +185,21 @@ enum FractalKind: String, CaseIterable, Identifiable {
     var supportsDistance: Bool { self == .mandelbrot || self == .julia }
     var usesJuliaConstant: Bool { self == .julia || self == .burningJulia }
 
+    /// Kinds built on z → f(z) + c can slide between the "Mandelbrot" form (z₀ = 0, c = pixel)
+    /// and the "Julia" form (z₀ = pixel, c fixed).
+    var supportsMorph: Bool {
+        switch self {
+        case .mandelbrot, .julia, .tricorn, .multibrot, .quartic, .quintic, .fracPower, .celtic,
+             .perpendicular, .phoenix, .lambda, .burningShip, .cubicShip, .burningJulia, .custom:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The morph value at which the kind is its normal self.
+    var baseMorph: Double { usesJuliaConstant ? 1 : 0 }
+
     /// Escape-time kinds need more iterations the deeper you go.
     var usesZoomBoost: Bool {
         switch self {
@@ -365,6 +380,6 @@ struct FractalParams {
     var power: Double = 2
     var variant: Int = 0
     var rotation: Double = 0
-    var morph: Double = 0   // Custom: 0 = Mandelbrot … 1 = Julia
+    var morph: Double = 0   // 0 = Mandelbrot form … 1 = Julia form
     var coef: Double = 1    // Custom: coefficient on the power term
 }

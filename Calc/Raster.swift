@@ -130,12 +130,13 @@ final class ProgressiveRenderer {
     private struct Request {
         var generation: Int
         var viewport: Viewport
-        var job: (CGFloat) -> CGImage?
+        var job: (CGFloat, Bool) -> CGImage?
     }
 
     private var generation = 0
     private var shownGeneration = -1
     private var quickInFlight = false
+    private var quickCell: CGFloat = 2 // adapts so an in-motion frame takes ~40 ms
     private var pending: Request?
     private var hiResTask: Task<Void, Never>?
 
@@ -147,8 +148,10 @@ final class ProgressiveRenderer {
         image = nil
     }
 
-    /// `job` renders the image for a given pixel size in points (smaller = sharper).
-    func request(viewport: Viewport, displayScale: CGFloat, job: @escaping (_ cell: CGFloat) -> CGImage?) {
+    /// `job` renders the image for a given pixel size in points (smaller = sharper);
+    /// `quick` is true for the in-motion frames.
+    func request(viewport: Viewport, displayScale: CGFloat,
+                 job: @escaping (_ cell: CGFloat, _ quick: Bool) -> CGImage?) {
         generation += 1
         let req = Request(generation: generation, viewport: viewport, job: job)
         pending = req
@@ -159,7 +162,7 @@ final class ProgressiveRenderer {
             try? await Task.sleep(for: .milliseconds(200))
             if Task.isCancelled { return }
             let cell = Raster.cell(for: viewport.size, displayScale: displayScale)
-            let img = await Task.detached(priority: .userInitiated) { job(cell) }.value
+            let img = await Task.detached(priority: .userInitiated) { job(cell, false) }.value
             guard let self, !Task.isCancelled, req.generation == self.generation else { return }
             self.show(img, viewport, req.generation)
         }
@@ -169,10 +172,16 @@ final class ProgressiveRenderer {
         guard !quickInFlight, let req = pending else { return }
         pending = nil
         quickInFlight = true
+        let cell = quickCell
         Task { @MainActor [weak self] in
-            let img = await Task.detached(priority: .userInitiated) { req.job(3) }.value
+            let started = ContinuousClock.now
+            let img = await Task.detached(priority: .userInitiated) { req.job(cell, true) }.value
+            let seconds = (ContinuousClock.now - started) / .seconds(1)
             guard let self else { return }
             self.quickInFlight = false
+            // Sharper when the fractal is cheap to draw, coarser when it isn't.
+            let ratio = max(0.25, min(4, seconds / 0.04))
+            self.quickCell = min(max(self.quickCell * CGFloat(ratio.squareRoot()), 0.6), 8)
             self.show(img, req.viewport, req.generation)
             self.pumpQuick() // catch up if the view moved while this frame was rendering
         }
@@ -207,7 +216,7 @@ struct ViewportImage: View {
                 let oy = Double(scale) * (-d.dx * sr + d.dy * cr)
                 Image(decorative: image, scale: 1)
                     .resizable()
-                    .interpolation(.medium)
+                    .interpolation(.high)
                     .frame(width: viewport.size.width * k, height: viewport.size.height * k)
                     .rotationEffect(.radians(rotation - viewport.rotation))
                     .position(x: size.width / 2 + CGFloat(ox), y: size.height / 2 - CGFloat(oy))

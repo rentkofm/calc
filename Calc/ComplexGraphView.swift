@@ -267,7 +267,7 @@ struct ComplexGraphView: View {
         guard let f = function else { renderer.clear(); return }
         let (sz, c, sc) = (size, center, scale)
         renderer.request(viewport: Viewport(center: Center(x: Double(c.x), y: Double(c.y)), scale: Double(sc), size: sz),
-                         displayScale: displayScale) { cell in
+                         displayScale: displayScale) { cell, _ in
             ComplexRenderer.render(f, size: sz, center: c, scale: sc, cell: cell)
         }
     }

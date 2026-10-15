@@ -16,7 +16,7 @@ struct FractalView: View {
     @State private var detail = 150.0
     @State private var power = 2.0
     @State private var zoomSpeed = 1.0 // doublings per second
-    @State private var morph = 0.0     // Custom: Mandelbrot (0) → Julia (1)
+    @State private var morph = 0.0     // Mandelbrot form (0) → Julia form (1)
     @State private var coef = 1.0
     @State private var customRe = -0.8
     @State private var customIm = 0.156
@@ -151,17 +151,17 @@ struct FractalView: View {
         case .raster:
             let full = params
             renderer.request(viewport: Viewport(center: center, scale: Double(scale), size: sz, rotation: rotation),
-                             displayScale: displayScale) { cell in
+                             displayScale: displayScale) { cell, quick in
                 var p = full
-                if cell > 2 { p.maxIter = min(p.maxIter, 800) } // keep the in-motion frames quick
+                if quick { p.maxIter = min(p.maxIter, 800) } // keep the in-motion frames quick
                 return FractalRenderer.render(p, size: sz, cell: cell)
             }
         case .ray3D:
             let rp = ray3DParams
             renderer.request(viewport: Viewport(center: Center(x: 0, y: 0), scale: 1, size: sz),
-                             displayScale: displayScale) { cell in
+                             displayScale: displayScale) { cell, quick in
                 // Ray marching is expensive: coarse while moving, ~1 point per pixel once still.
-                Fractal3D.render(rp, size: sz, cell: cell >= 2 ? max(cell, 4) : max(cell, 1.2))
+                Fractal3D.render(rp, size: sz, cell: quick ? max(cell, 2) : max(cell, 1.2))
             }
         case .accumulate:
             accumulator.start(viewport: Viewport(center: center, scale: Double(scale), size: sz, rotation: rotation),
@@ -178,7 +178,7 @@ struct FractalView: View {
         detail = kind.detailSpec?.defaultValue ?? 0
         power = kind.powerSpec?.defaultValue ?? 2
         variant = 0
-        morph = 0
+        morph = kind.baseMorph
         coef = 1
         customRe = -0.8
         customIm = 0.156
@@ -549,7 +549,7 @@ struct FractalView: View {
                     .glassEffect(.regular.interactive(), in: Capsule())
                     .accessibilityLabel("Reset view")
                 }
-                if kind.usesJuliaConstant {
+                if kind.supportsMorph && kind != .custom && kind != .phoenix {
                     HStack {
                         Picker("c", selection: $juliaIndex) {
                             ForEach(Self.juliaPresets.indices, id: \.self) { i in
@@ -565,15 +565,17 @@ struct FractalView: View {
                 }
                 if let spec = kind.detailSpec { sliderRow(spec, value: $detail) }
                 if let spec = kind.powerSpec { sliderRow(spec, value: $power) }
-                if kind == .custom {
-                    sliderRow(SliderSpec(label: "Morph", range: 0...1, step: 0.01, defaultValue: 0), value: $morph)
-                    sliderRow(SliderSpec(label: "Coeff.", range: 0.2...3, step: 0.05, defaultValue: 1), value: $coef)
-                    sliderRow(SliderSpec(label: "c real", range: -2...2, step: 0.01, defaultValue: -0.8), value: $customRe)
-                    sliderRow(SliderSpec(label: "c imag", range: -2...2, step: 0.01, defaultValue: 0.156), value: $customIm)
-                    Text("Morph 0 = Mandelbrot, 1 = Julia with the c above. z → coeff·zᵖ + c")
+                if kind.supportsMorph {
+                    sliderRow(SliderSpec(label: "Morph", range: 0...1, step: 0.01, defaultValue: kind.baseMorph), value: $morph)
+                    Text("Morph 0 = Mandelbrot form (c = pixel) · 1 = Julia form (c fixed)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                }
+                if kind == .custom {
+                    sliderRow(SliderSpec(label: "Coeff.", range: 0.2...3, step: 0.05, defaultValue: 1), value: $coef)
+                    sliderRow(SliderSpec(label: "c real", range: -2...2, step: 0.01, defaultValue: -0.8), value: $customRe)
+                    sliderRow(SliderSpec(label: "c imag", range: -2...2, step: 0.01, defaultValue: 0.156), value: $customIm)
                 }
                 HStack(spacing: 12) {
                     Text("Auto-zoom")

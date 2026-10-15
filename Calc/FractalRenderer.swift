@@ -7,7 +7,9 @@ enum FractalRenderer {
     private static let lyapunovSequences = ["AB", "AABAB", "BBBBBBAAAAAA", "ABBBAAB"]
 
     static func render(_ p: FractalParams, size: CGSize, cell: CGFloat) -> CGImage? {
-        if p.kind.supportsDeepZoom && p.scale > 1e9 { return renderDeep(p, size: size, cell: cell) }
+        if p.kind.supportsDeepZoom && p.scale > 1e9 && p.morph == p.kind.baseMorph {
+            return renderDeep(p, size: size, cell: cell)
+        }
         let cx = p.center.doubleX, cy = p.center.doubleY, s = Double(p.scale)
         let hw = Double(size.width) / 2, hh = Double(size.height) / 2
         let cosR = cos(p.rotation), sinR = sin(p.rotation)
@@ -34,7 +36,9 @@ enum FractalRenderer {
         case .smooth:
             return p.palette.color(forMu: e.mu, frequency: f)
         case .distance:
-            guard p.kind.supportsDistance else { return p.palette.color(forMu: e.mu, frequency: f) }
+            guard p.kind.supportsDistance, p.morph == p.kind.baseMorph else {
+                return p.palette.color(forMu: e.mu, frequency: f)
+            }
             // Distance to the set in pixels: filaments fade to black as they thin out.
             let v = min(1, max(0, e.aux * s * 0.35))
             return p.palette.color(forMu: e.mu, frequency: f, brightness: pow(v, 0.35))
@@ -66,34 +70,30 @@ enum FractalRenderer {
 
         var zr = 0.0, zi = 0.0, cr = x, ci = y
         var pzr = 0.0, pzi = 0.0 // previous z, for Phoenix
-        switch p.kind {
-        case .julia, .burningJulia:
-            zr = x; zi = y; cr = p.juliaC.re; ci = p.juliaC.im
-        case .phoenix:
-            zr = x; zi = y; cr = 0.5667; ci = 0
-        case .lambda:
-            zr = 0.5
-        case .custom:
-            // Blend from Mandelbrot (z₀ = 0, c = pixel) to Julia (z₀ = pixel, c fixed).
-            let t = p.morph
-            zr = t * x; zi = t * y
-            cr = (1 - t) * x + t * p.juliaC.re
-            ci = (1 - t) * y + t * p.juliaC.im
-        case .inverse:
+        if p.kind == .inverse {
             let d = x * x + y * y
             if d == 0 { return (-1, 0) }
             cr = x / d; ci = -y / d
-        case .mandelbrot:
+        } else if p.kind.supportsMorph {
+            // Blend from the Mandelbrot form (z₀ = start, c = pixel) to the Julia form (z₀ = pixel, c fixed).
+            let t = p.morph
+            let start = p.kind == .lambda ? 0.5 : 0.0
+            let c0 = p.kind == .phoenix ? (re: 0.5667, im: 0.0) : p.juliaC
+            zr = (1 - t) * start + t * x
+            zi = t * y
+            cr = (1 - t) * x + t * c0.re
+            ci = (1 - t) * y + t * c0.im
+        }
+        let atBase = p.morph == p.kind.baseMorph
+        if p.kind == .mandelbrot && atBase {
             // Skip the main cardioid and period-2 bulb.
             let q = (x - 0.25) * (x - 0.25) + y * y
             if q * (q + (x - 0.25)) < 0.25 * y * y || (x + 1) * (x + 1) + y * y < 0.0625 { return (-1, 0) }
-        default:
-            break
         }
 
         let mode = p.kind.supportsColoring ? p.coloring : .smooth
-        let wantDE = mode == .distance && p.kind.supportsDistance
-        var dzr = p.kind == .julia ? 1.0 : 0.0, dzi = 0.0
+        let wantDE = mode == .distance && p.kind.supportsDistance && atBase
+        var dzr = p.kind.baseMorph == 1 ? 1.0 : 0.0, dzi = 0.0
         let cmag = hypot(cr, ci)
         var trap = Double.infinity
         var triSum = 0.0, triN = 0.0
