@@ -33,6 +33,15 @@ final class Inertia {
 }
 
 enum Raster {
+    /// Wraps RGBA bytes (8 bits per channel) in an image.
+    static func cgImage(width w: Int, height h: Int, rgba: [UInt8]) -> CGImage? {
+        guard let provider = CGDataProvider(data: Data(rgba) as CFData) else { return nil }
+        return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,
+                       space: CGColorSpaceCreateDeviceRGB(),
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+    }
+
     /// Size of one rendered pixel (in points) for a crisp, native-resolution image,
     /// capped so huge screens don't render more than `maxPixels`.
     static func cell(for size: CGSize, displayScale: CGFloat, maxPixels: Double = 1_000_000) -> CGFloat {

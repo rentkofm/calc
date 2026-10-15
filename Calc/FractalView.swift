@@ -1,318 +1,5 @@
 import SwiftUI
 
-enum FractalKind: String, CaseIterable, Identifiable {
-    case mandelbrot = "Mandelbrot", julia = "Julia", burningShip = "Burning Ship"
-    case tricorn = "Tricorn", multibrot = "Multibrot", quartic = "Quartic"
-    case celtic = "Celtic", perpendicular = "Perpendicular", phoenix = "Phoenix"
-    case newton = "Newton", carpet = "Carpet", sierpinski = "Sierpinski"
-    case quintic = "Quintic", cubicShip = "Cubic Ship", burningJulia = "Burning Julia"
-    case lambda = "Lambda", magnet = "Magnet", inverse = "Inverse"
-    case cantorDust = "Cantor Dust", vicsek = "Vicsek"
-    var id: String { rawValue }
-
-    var defaultCenter: Center {
-        switch self {
-        case .mandelbrot, .celtic: return Center(x: -0.5, y: 0)
-        case .burningShip: return Center(x: -0.5, y: -0.5)
-        case .perpendicular: return Center(x: -0.25, y: 0)
-        case .carpet, .sierpinski, .cantorDust, .vicsek: return Center(x: 0.5, y: 0.5)
-        case .lambda: return Center(x: 1.5, y: 0)
-        case .magnet: return Center(x: 1, y: 0)
-        default: return Center(x: 0, y: 0)
-        }
-    }
-
-    /// Mandelbrot and Julia can zoom essentially without limit (arbitrary-precision reference orbit +
-    /// perturbation). The others iterate in plain doubles, which run out of precision around 1e13.
-    var supportsDeepZoom: Bool { self == .mandelbrot || self == .julia }
-    var maxScale: CGFloat { supportsDeepZoom ? 1e300 : 1e13 }
-
-    var defaultScale: CGFloat {
-        switch self {
-        case .carpet, .sierpinski, .cantorDust, .vicsek: return 300
-        case .phoenix: return 150
-        case .lambda: return 80
-        case .magnet: return 60
-        default: return 110
-        }
-    }
-
-    /// Degree of the iterated map, used for smooth coloring.
-    var degree: Double {
-        switch self {
-        case .multibrot, .cubicShip: return 3
-        case .quartic: return 4
-        case .quintic: return 5
-        default: return 2
-        }
-    }
-
-    /// How quickly the palette cycles with the iteration count.
-    var colorFrequency: Double {
-        switch self {
-        case .carpet, .sierpinski, .cantorDust, .vicsek: return 0.12
-        default: return 0.035
-        }
-    }
-
-    /// Structural fractals have a fixed depth; no point scaling iterations with zoom.
-    var isStructural: Bool { self == .carpet || self == .sierpinski || self == .cantorDust || self == .vicsek }
-
-    var usesJuliaConstant: Bool { self == .julia || self == .burningJulia }
-}
-
-enum FractalPalette: String, CaseIterable, Identifiable {
-    case deepBlue = "Deep Blue", classic = "Classic", fire = "Fire", ocean = "Ocean", ultraviolet = "Ultraviolet"
-    case forest = "Forest", mono = "Mono"
-    var id: String { rawValue }
-
-    /// Cosine palette: a + b·cos(2π(c·t + d)) per channel.
-    var coefficients: (a: [Double], b: [Double], c: [Double], d: [Double]) {
-        switch self {
-        case .classic: return ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [1, 1, 1], [0, 0.33, 0.67])
-        case .fire: return ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [1, 0.7, 0.4], [0, 0.15, 0.2])
-        case .ocean: return ([0.8, 0.5, 0.4], [0.2, 0.4, 0.2], [2, 1, 1], [0, 0.25, 0.25])
-        case .ultraviolet: return ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [2, 1, 0], [0.5, 0.2, 0.25])
-        case .forest: return ([0.2, 0.5, 0.2], [0.2, 0.4, 0.2], [1, 1, 1], [0, 0.1, 0.2])
-        case .mono: return ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [1, 1, 1], [0, 0, 0])
-        case .deepBlue: return ([0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]) // gradient palette, see below
-        }
-    }
-
-    /// The look from the classic zoom videos: black → deep blue → white glow at the boundary,
-    /// repeating in log-scale bands so the filaments keep their contrast.
-    private static let deepBlueStops: [(t: Double, r: Double, g: Double, b: Double)] = [
-        (0.00, 0.00, 0.00, 0.00),
-        (0.30, 0.00, 0.00, 0.28),
-        (0.55, 0.02, 0.04, 0.78),
-        (0.75, 0.35, 0.50, 1.00),
-        (0.90, 0.80, 0.88, 1.00),
-        (1.00, 1.00, 1.00, 1.00),
-    ]
-
-    private func gradient(_ t: Double, brightness: Double) -> (UInt8, UInt8, UInt8) {
-        let u = t - floor(t)
-        let stops = Self.deepBlueStops
-        var i = 0
-        while i < stops.count - 2 && u > stops[i + 1].t { i += 1 }
-        let a = stops[i], b = stops[i + 1]
-        let f = (u - a.t) / (b.t - a.t)
-        func ch(_ x: Double, _ y: Double) -> UInt8 { UInt8(min(max((x + (y - x) * f) * brightness, 0), 1) * 255) }
-        return (ch(a.r, b.r), ch(a.g, b.g), ch(a.b, b.b))
-    }
-
-    /// Color for a smooth escape-time value.
-    func color(forMu mu: Double, frequency: Double) -> (UInt8, UInt8, UInt8) {
-        if self == .deepBlue {
-            // Wider bands, and an ease-out curve so more of each band is pale: the glow fades to white
-            // over a larger area as the boundary gets closer.
-            let v = max(0, log2(max(mu, 0) + 1) - 1) / 5.5
-            return gradient(pow(v - floor(v), 0.65), brightness: 1)
-        }
-        return color(at: mu * frequency)
-    }
-
-    func color(at t: Double, brightness: Double = 1) -> (UInt8, UInt8, UInt8) {
-        if self == .deepBlue { return gradient(t, brightness: brightness) }
-        let k = coefficients
-        func channel(_ i: Int) -> UInt8 {
-            let v = k.a[i] + k.b[i] * cos(2 * Double.pi * (k.c[i] * t + k.d[i]))
-            return UInt8(min(max(v * brightness, 0), 1) * 255)
-        }
-        return (channel(0), channel(1), channel(2))
-    }
-}
-
-struct FractalParams {
-    var kind: FractalKind
-    var palette: FractalPalette
-    var center: Center
-    var scale: CGFloat
-    var maxIter: Int
-    var juliaC: (re: Double, im: Double)
-}
-
-enum FractalRenderer {
-    static func render(_ p: FractalParams, size: CGSize, cell: CGFloat) -> CGImage? {
-        if p.kind.supportsDeepZoom && p.scale > 1e9 { return renderDeep(p, size: size, cell: cell) }
-        let cx = p.center.doubleX, cy = p.center.doubleY, s = Double(p.scale)
-        let hw = Double(size.width) / 2, hh = Double(size.height) / 2
-        return Raster.image(size: size, cell: cell) { sx, sy in
-            let x = cx + (sx - hw) / s, y = cy - (sy - hh) / s
-            if p.kind == .newton { return newton(p, x: x, y: y) }
-            let mu = escape(p, x: x, y: y)
-            guard mu >= 0 else { return (0, 0, 0) }
-            return p.palette.color(forMu: mu, frequency: p.kind.colorFrequency)
-        }
-    }
-
-    /// Newton's method on z³ − 1: color by the root reached, darker the longer it took.
-    static func newton(_ p: FractalParams, x: Double, y: Double) -> (UInt8, UInt8, UInt8) {
-        let roots: [(Double, Double)] = [(1, 0), (-0.5, 0.8660254037844386), (-0.5, -0.8660254037844386)]
-        var zr = x, zi = y
-        for i in 0..<min(p.maxIter, 120) {
-            let z2r = zr * zr - zi * zi, z2i = 2 * zr * zi
-            let z3r = z2r * zr - z2i * zi, z3i = z2r * zi + z2i * zr
-            // z -= (z³ − 1) / (3z²)
-            let nr = z3r - 1, ni = z3i
-            let dr = 3 * z2r, di = 3 * z2i
-            let d = dr * dr + di * di
-            if d == 0 { return (0, 0, 0) }
-            zr -= (nr * dr + ni * di) / d
-            zi -= (ni * dr - nr * di) / d
-            for (k, r) in roots.enumerated() {
-                let dx = zr - r.0, dy = zi - r.1
-                if dx * dx + dy * dy < 1e-10 {
-                    let brightness = max(0.25, 1 - Double(i) / 30)
-                    return p.palette.color(at: Double(k) * 0.33 + 0.1, brightness: brightness)
-                }
-            }
-        }
-        return (0, 0, 0)
-    }
-
-    /// Smooth escape time, or -1 for points that never escape.
-    static func escape(_ p: FractalParams, x: Double, y: Double) -> Double {
-        switch p.kind {
-        case .carpet, .cantorDust, .vicsek: return ternary(p.kind, x, y, p.maxIter)
-        case .sierpinski: return sierpinski(x, y, p.maxIter)
-        case .magnet: return magnet(x, y, p.maxIter)
-        default: break
-        }
-
-        var zr = 0.0, zi = 0.0, cr = x, ci = y
-        var pr = 0.0, pi = 0.0 // previous z, for Phoenix
-        switch p.kind {
-        case .julia, .burningJulia:
-            (zr, zi, cr, ci) = (x, y, p.juliaC.re, p.juliaC.im)
-        case .lambda:
-            zr = 0.5
-        case .inverse:
-            let d = x * x + y * y
-            if d == 0 { return -1 }
-            (cr, ci) = (x / d, -y / d)
-        case .phoenix:
-            (zr, zi, cr, ci) = (x, y, 0.5667, 0)
-        case .mandelbrot:
-            // Skip the main cardioid and period-2 bulb.
-            let q = (x - 0.25) * (x - 0.25) + y * y
-            if q * (q + (x - 0.25)) < 0.25 * y * y || (x + 1) * (x + 1) + y * y < 0.0625 { return -1 }
-        default:
-            break
-        }
-
-        var i = 0
-        var m = 0.0
-        while i < p.maxIter {
-            let r2 = zr * zr, i2 = zi * zi
-            m = r2 + i2
-            if m > 256 { break }
-            switch p.kind {
-            case .mandelbrot, .julia, .inverse:
-                zi = 2 * zr * zi + ci
-                zr = r2 - i2 + cr
-            case .burningShip, .burningJulia:
-                let a = abs(zr), b = abs(zi)
-                zi = 2 * a * b + ci
-                zr = a * a - b * b + cr
-            case .cubicShip:
-                let a = abs(zr), b = abs(zi)
-                zi = b * (3 * a * a - b * b) + ci
-                zr = a * (a * a - 3 * b * b) + cr
-            case .quintic:
-                let ar = r2 - i2, ai = 2 * zr * zi // z²
-                let br = ar * ar - ai * ai, bi = 2 * ar * ai // z⁴
-                let nr = br * zr - bi * zi + cr
-                zi = br * zi + bi * zr + ci
-                zr = nr
-            case .lambda:
-                // z ← c·z·(1 − z)
-                let wr = zr - r2 + i2, wi = zi - 2 * zr * zi
-                zr = cr * wr - ci * wi
-                zi = cr * wi + ci * wr
-            case .tricorn:
-                zi = -2 * zr * zi + ci
-                zr = r2 - i2 + cr
-            case .multibrot:
-                let nr = zr * (r2 - 3 * i2) + cr
-                zi = zi * (3 * r2 - i2) + ci
-                zr = nr
-            case .quartic:
-                let ar = r2 - i2, ai = 2 * zr * zi // z²
-                zr = ar * ar - ai * ai + cr
-                zi = 2 * ar * ai + ci
-            case .celtic:
-                let nr = abs(r2 - i2) + cr
-                zi = 2 * zr * zi + ci
-                zr = nr
-            case .perpendicular:
-                zi = -2 * abs(zr) * zi + ci
-                zr = r2 - i2 + cr
-            case .phoenix:
-                let nr = r2 - i2 + cr - 0.5 * pr
-                let ni = 2 * zr * zi - 0.5 * pi
-                (pr, pi) = (zr, zi)
-                (zr, zi) = (nr, ni)
-            default:
-                break
-            }
-            i += 1
-        }
-        if i >= p.maxIter { return -1 }
-        return Double(i) + 1 - log2(0.5 * log(m)) / log2(p.kind.degree)
-    }
-
-    /// Base-3 self-similar sets (carpet, Cantor dust, Vicsek). Removed cells are colored by the level they appear at.
-    private static func ternary(_ kind: FractalKind, _ x0: Double, _ y0: Double, _ maxIter: Int) -> Double {
-        guard x0 >= 0, x0 < 1, y0 >= 0, y0 < 1 else { return -1 }
-        var x = x0, y = y0
-        for level in 0..<min(maxIter, 30) { // ×3 isn't exact in binary; deeper levels are noise
-            x *= 3; y *= 3
-            let ix = floor(x), iy = floor(y)
-            let removed: Bool
-            switch kind {
-            case .cantorDust: removed = ix == 1 || iy == 1
-            case .vicsek: removed = ix != 1 && iy != 1
-            default: removed = ix == 1 && iy == 1 // carpet
-            }
-            if removed { return Double(level) }
-            x -= ix; y -= iy
-        }
-        return -1
-    }
-
-    /// Magnet fractal (type I): z ← ((z² + c − 1) / (2z + c − 2))². Points that settle on 1 are inside.
-    private static func magnet(_ cr: Double, _ ci: Double, _ maxIter: Int) -> Double {
-        var zr = 0.0, zi = 0.0
-        for i in 0..<maxIter {
-            let nr = zr * zr - zi * zi + cr - 1, ni = 2 * zr * zi + ci
-            let dr = 2 * zr + cr - 2, di = 2 * zi + ci
-            let d = dr * dr + di * di
-            if d == 0 { return -1 }
-            let qr = (nr * dr + ni * di) / d, qi = (ni * dr - nr * di) / d
-            zr = qr * qr - qi * qi
-            zi = 2 * qr * qi
-            let m = zr * zr + zi * zi
-            if m > 256 { return Double(i) + 1 - log2(0.5 * log(m)) }
-            if (zr - 1) * (zr - 1) + zi * zi < 1e-8 { return -1 }
-        }
-        return -1
-    }
-
-    /// Sierpinski triangle (gasket): the removed triangles are colored by level.
-    private static func sierpinski(_ x0: Double, _ y0: Double, _ maxIter: Int) -> Double {
-        guard x0 >= 0, x0 < 1, y0 >= 0, y0 < 1 else { return -1 }
-        var x = x0, y = y0
-        for level in 0..<min(maxIter, 50) { // ×2 is exact in binary
-            x *= 2; y *= 2
-            let ix = floor(x), iy = floor(y)
-            if ix == 1 && iy == 1 { return Double(level) }
-            x -= ix; y -= iy
-        }
-        return -1
-    }
-}
-
 struct FractalView: View {
     private static let juliaPresets: [(re: Double, im: Double)] = [
         (-0.8, 0.156), (-0.4, 0.6), (0.285, 0.01), (-0.70176, -0.3842), (0.355, 0.355), (-0.835, -0.2321), (0, 1),
@@ -323,23 +10,37 @@ struct FractalView: View {
 
     @State private var kind: FractalKind = .mandelbrot
     @State private var palette: FractalPalette = .deepBlue
+    @State private var coloring: FractalColoring = .smooth
     @State private var juliaIndex = 0
+    @State private var variant = 0
     @State private var detail = 150.0
+    @State private var power = 2.0
     @State private var zoomSpeed = 1.0 // doublings per second
+
     @State private var center: Center = FractalKind.mandelbrot.defaultCenter
-    @State private var scale = FractalKind.mandelbrot.defaultScale
+    @State private var scale: CGFloat = FractalKind.mandelbrot.defaultScale
+    @State private var yaw = 0.6
+    @State private var pitch = 0.35
+    @State private var dist = 3.0
+    @State private var target = SIMD3<Double>(0, 0, 0)
+
     @State private var size = CGSize(width: 320, height: 320)
     @State private var renderer = ProgressiveRenderer()
+    @State private var accumulator = AccumulationRenderer()
     @State private var dragOrigin: Center?
+    @State private var rotOrigin: (yaw: Double, pitch: Double)?
     @State private var scaleOrigin: CGFloat?
+    @State private var distOrigin: Double?
     @State private var inertia = Inertia()
     @State private var autoZoomTask: Task<Void, Never>?
     @State private var isFullscreen = false
+    @State private var controlsHeight: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 12) {
             canvas
             if !isFullscreen {
+                categoryChips
                 kindChips
                 controls
             }
@@ -368,47 +69,108 @@ struct FractalView: View {
         .toolbar(isFullscreen ? .hidden : .automatic, for: .navigationBar)
         .statusBarHidden(isFullscreen)
         .onChange(of: renderKey) { refresh() }
-        .onChange(of: kind) { reset() }
-        .onAppear { refresh() }
+        .onChange(of: kind) { selectDefaults() }
+        .onAppear { selectDefaults() }
     }
 
-    // MARK: Rendering
+    // MARK: State derived from the controls
 
     private var maxIter: Int {
-        if kind.isStructural { return 50 }
-        let zoomBoost = 60 * max(0, log2(Double(scale / kind.defaultScale)))
-        return min(Int(detail + zoomBoost), 100_000)
+        guard kind.detailSpec != nil else { return 50 }
+        if kind.usesZoomBoost {
+            let boost = 60 * max(0, log2(Double(scale / kind.defaultScale)))
+            return min(Int(detail + boost), 100_000)
+        }
+        return Int(detail)
     }
 
     private var params: FractalParams {
-        FractalParams(kind: kind, palette: palette, center: center, scale: scale, maxIter: maxIter,
-                      juliaC: Self.juliaPresets[juliaIndex])
+        FractalParams(kind: kind, palette: palette, coloring: coloring, center: center, scale: scale,
+                      maxIter: maxIter, juliaC: Self.juliaPresets[juliaIndex], power: power, variant: variant)
+    }
+
+    private var ray3DParams: Ray3DParams {
+        Ray3DParams(kind: kind, palette: palette, yaw: yaw, pitch: pitch, dist: dist, target: target,
+                    power: power, iterations: Int(detail))
     }
 
     private struct RenderKey: Equatable {
         var kind: FractalKind
         var palette: FractalPalette
+        var coloring: FractalColoring
         var juliaIndex: Int
+        var variant: Int
         var detail: Double
+        var power: Double
         var center: Center
         var scale: Double
         var size: CGSize
+        var yaw: Double
+        var pitch: Double
+        var dist: Double
+        var target: SIMD3<Double>
     }
 
     private var renderKey: RenderKey {
-        RenderKey(kind: kind, palette: palette, juliaIndex: juliaIndex, detail: detail,
-                  center: center, scale: Double(scale), size: size)
+        RenderKey(kind: kind, palette: palette, coloring: coloring, juliaIndex: juliaIndex, variant: variant,
+                  detail: detail, power: power, center: center, scale: Double(scale), size: size,
+                  yaw: yaw, pitch: pitch, dist: dist, target: target)
     }
 
+    // MARK: Rendering
+
     private func refresh() {
-        let full = params
         let sz = size
-        renderer.request(viewport: Viewport(center: center, scale: Double(scale), size: sz),
-                         displayScale: displayScale) { cell in
-            var p = full
-            if cell > 2 { p.maxIter = min(p.maxIter, 800) } // keep the in-motion frames quick
-            return FractalRenderer.render(p, size: sz, cell: cell)
+        switch kind.style {
+        case .raster:
+            let full = params
+            renderer.request(viewport: Viewport(center: center, scale: Double(scale), size: sz),
+                             displayScale: displayScale) { cell in
+                var p = full
+                if cell > 2 { p.maxIter = min(p.maxIter, 800) } // keep the in-motion frames quick
+                return FractalRenderer.render(p, size: sz, cell: cell)
+            }
+        case .ray3D:
+            let rp = ray3DParams
+            renderer.request(viewport: Viewport(center: Center(x: 0, y: 0), scale: 1, size: sz),
+                             displayScale: displayScale) { cell in
+                // Ray marching is expensive: coarse while moving, ~1 point per pixel once still.
+                Fractal3D.render(rp, size: sz, cell: cell >= 2 ? max(cell, 4) : max(cell, 1.2))
+            }
+        case .accumulate:
+            accumulator.start(viewport: Viewport(center: center, scale: Double(scale), size: sz),
+                              spec: Accumulate.spec(for: params))
+        case .vector:
+            break // drawn live by the canvas
         }
+    }
+
+    private func selectDefaults() {
+        stopMotion()
+        center = kind.defaultCenter
+        scale = kind.defaultScale
+        detail = kind.detailSpec?.defaultValue ?? 0
+        power = kind.powerSpec?.defaultValue ?? 2
+        variant = 0
+        if !kind.supportsColoring { coloring = .smooth }
+        resetCamera()
+        renderer.clear()
+        accumulator.clear()
+        refresh()
+    }
+
+    private func resetCamera() {
+        yaw = 0.6
+        pitch = 0.35
+        dist = kind.defaultDistance
+        target = SIMD3<Double>(0, 0, 0)
+    }
+
+    private func resetView() {
+        stopMotion()
+        center = kind.defaultCenter
+        scale = kind.defaultScale
+        resetCamera()
     }
 
     // MARK: Motion
@@ -419,19 +181,15 @@ struct FractalView: View {
         autoZoomTask = nil
     }
 
-    private func reset() {
-        stopMotion()
-        center = kind.defaultCenter
-        scale = kind.defaultScale
-    }
-
-    /// Zooms toward `point` at a constant exponential rate, easing the point to the middle of the view.
     private func startAutoZoom(at point: CGPoint) {
         stopMotion()
-        let target = center.moved(dx: Double((point.x - size.width / 2) / scale),
-                                  dy: -Double((point.y - size.height / 2) / scale))
-        var screen = point
         Haptics.tap()
+        if kind.style == .ray3D { startAutoDolly(at: point); return }
+
+        // Zoom toward `point` at a constant exponential rate, easing it to the middle of the view.
+        let zoomTarget = center.moved(dx: Double((point.x - size.width / 2) / scale),
+                                      dy: -Double((point.y - size.height / 2) / scale))
+        var screen = point
         autoZoomTask = Task { @MainActor in
             var last = ContinuousClock.now
             while !Task.isCancelled && scale < kind.maxScale {
@@ -444,164 +202,299 @@ struct FractalView: View {
                 screen.x += (size.width / 2 - screen.x) * ease
                 screen.y += (size.height / 2 - screen.y) * ease
                 scale *= CGFloat(pow(2, zoomSpeed * dt))
-                center = target.moved(dx: -Double((screen.x - size.width / 2) / scale),
-                                      dy: Double((screen.y - size.height / 2) / scale))
+                center = zoomTarget.moved(dx: -Double((screen.x - size.width / 2) / scale),
+                                          dy: Double((screen.y - size.height / 2) / scale))
             }
             autoZoomTask = nil
         }
     }
 
-    // MARK: Views
+    /// 3D: turn toward the tapped surface point, then fly straight at it.
+    private func startAutoDolly(at point: CGPoint) {
+        let rp = ray3DParams
+        guard let hit = Fractal3D.cast(rp, size: size, at: point) else { return }
+        let camPos = Fractal3D.cameraPosition(rp)
+        autoZoomTask = Task { @MainActor in
+            let start = target
+            var glide = 0.0
+            var last = ContinuousClock.now
+            while !Task.isCancelled && glide < 1 {
+                try? await Task.sleep(for: .milliseconds(16))
+                if Task.isCancelled { return }
+                let now = ContinuousClock.now
+                glide = min(1, glide + min(0.05, (now - last) / .seconds(1)) / 0.6)
+                last = now
+                let e = glide * glide * (3 - 2 * glide)
+                target = start + (hit - start) * e
+                lookAt(from: camPos)
+            }
+            while !Task.isCancelled && dist > 1e-9 {
+                try? await Task.sleep(for: .milliseconds(16))
+                if Task.isCancelled { return }
+                let now = ContinuousClock.now
+                let dt = min(0.05, (now - last) / .seconds(1))
+                last = now
+                dist *= pow(2, -zoomSpeed * dt)
+            }
+            autoZoomTask = nil
+        }
+    }
 
-    private var canvas: some View {
+    /// Re-aim the camera at `target` without moving it.
+    private func lookAt(from pos: SIMD3<Double>) {
+        let v = pos - target
+        let d = (v * v).sum().squareRoot()
+        guard d > 0 else { return }
+        dist = d
+        yaw = atan2(v.x, v.z)
+        pitch = asin(max(-1, min(1, v.y / d)))
+    }
+
+    // MARK: Canvas
+
+    private var canvasContent: some View {
         ZStack {
             Color.black
-            ViewportImage(image: renderer.image, viewport: renderer.viewport,
-                          center: center, scale: scale, size: size)
+            switch kind.style {
+            case .raster:
+                ViewportImage(image: renderer.image, viewport: renderer.viewport,
+                              center: center, scale: scale, size: size)
+            case .accumulate:
+                ViewportImage(image: accumulator.image, viewport: accumulator.viewport,
+                              center: center, scale: scale, size: size)
+            case .vector:
+                Canvas { ctx, sz in VectorFractals.draw(ctx, size: sz, p: params) }
+            case .ray3D:
+                if let image = renderer.image {
+                    Image(decorative: image, scale: 1)
+                        .resizable()
+                        .interpolation(.medium)
+                }
+            }
         }
-        .frame(minHeight: 220)
-        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { size = $0 })
-        .overlay(alignment: .bottomLeading) {
-            if !isFullscreen {
-                Text("\(formatNumber(Double(scale / kind.defaultScale), digits: 3))× · \(maxIter) iterations")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .glassEffect(.regular, in: Capsule())
+    }
+
+    private var badge: String {
+        if kind.style == .ray3D { return "\(formatNumber(kind.defaultDistance / dist, digits: 3))×" }
+        let zoom = "\(formatNumber(Double(scale / kind.defaultScale), digits: 3))×"
+        return kind.style == .raster && kind.detailSpec != nil ? "\(zoom) · \(maxIter) iterations" : zoom
+    }
+
+    private var canvas: some View {
+        canvasContent
+            .frame(minHeight: 220)
+            .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { size = $0 })
+            .overlay(alignment: .bottomLeading) {
+                if !isFullscreen {
+                    Text(badge)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .glassEffect(.regular, in: Capsule())
+                        .padding(10)
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if !isFullscreen {
+                    Button {
+                        withAnimation(.smooth) { isFullscreen = true }
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: Circle())
                     .padding(10)
-                    .allowsHitTesting(false)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            if !isFullscreen {
-                Button {
-                    withAnimation(.smooth) { isFullscreen = true }
-                } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 34, height: 34)
+                    .accessibilityLabel("Full screen")
                 }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: Circle())
-                .padding(10)
-                .accessibilityLabel("Full screen")
             }
-        }
-        .clipShape(.rect(cornerRadius: isFullscreen ? 0 : 28))
-        .glassEffect(isFullscreen ? .identity : .regular, in: .rect(cornerRadius: isFullscreen ? 0 : 28))
-        .ignoresSafeArea(isFullscreen ? .all : [])
-        .gesture(
-            DragGesture(minimumDistance: 3)
-                .onChanged { v in
-                    if dragOrigin == nil { stopMotion(); dragOrigin = center }
-                    let o = dragOrigin ?? center
-                    center = o.moved(dx: -Double(v.translation.width / scale),
-                                     dy: Double(v.translation.height / scale))
+            .clipShape(.rect(cornerRadius: isFullscreen ? 0 : 28))
+            .glassEffect(isFullscreen ? .identity : .regular, in: .rect(cornerRadius: isFullscreen ? 0 : 28))
+            .ignoresSafeArea(isFullscreen ? .all : [])
+            .gesture(
+                DragGesture(minimumDistance: 3)
+                    .onChanged { v in
+                        if kind.style == .ray3D {
+                            if rotOrigin == nil { stopMotion(); rotOrigin = (yaw, pitch) }
+                            let o = rotOrigin ?? (yaw, pitch)
+                            yaw = o.yaw - Double(v.translation.width) * 0.008
+                            pitch = min(max(o.pitch + Double(v.translation.height) * 0.008, -1.5), 1.5)
+                        } else {
+                            if dragOrigin == nil { stopMotion(); dragOrigin = center }
+                            let o = dragOrigin ?? center
+                            center = o.moved(dx: -Double(v.translation.width / scale),
+                                             dy: Double(v.translation.height / scale))
+                        }
+                    }
+                    .onEnded { v in
+                        dragOrigin = nil
+                        rotOrigin = nil
+                        inertia.start(velocity: v.velocity) { dx, dy in
+                            if kind.style == .ray3D {
+                                yaw -= dx * 0.008
+                                pitch = min(max(pitch + dy * 0.008, -1.5), 1.5)
+                            } else {
+                                center = center.moved(dx: -dx / Double(scale), dy: dy / Double(scale))
+                            }
+                        }
+                    }
+            )
+            .simultaneousGesture(
+                MagnifyGesture()
+                    .onChanged { v in
+                        if kind.style == .ray3D {
+                            if distOrigin == nil { stopMotion(); distOrigin = dist }
+                            dist = min(max((distOrigin ?? dist) / Double(v.magnification), 1e-9), 200)
+                        } else {
+                            if scaleOrigin == nil { stopMotion(); scaleOrigin = scale }
+                            scale = min(max((scaleOrigin ?? scale) * v.magnification, kind.minScale), kind.maxScale)
+                        }
+                    }
+                    .onEnded { _ in scaleOrigin = nil; distOrigin = nil }
+            )
+            // Tap to stop coasting or auto-zoom; double-tap a point to zoom into it.
+            .simultaneousGesture(
+                SpatialTapGesture(count: 1).onEnded { _ in
+                    if inertia.running || autoZoomTask != nil { stopMotion() }
                 }
-                .onEnded { v in
-                    dragOrigin = nil
-                    inertia.start(velocity: v.velocity) { dx, dy in
-                        center = center.moved(dx: -dx / Double(scale), dy: dy / Double(scale))
+            )
+            .simultaneousGesture(
+                SpatialTapGesture(count: 2).onEnded { value in startAutoZoom(at: value.location) }
+            )
+    }
+
+    // MARK: Chips and controls
+
+    private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 36)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(selected ? .regular.tint(accent).interactive() : .regular.interactive(), in: Capsule())
+    }
+
+    private var categoryChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(FractalCategory.allCases) { cat in
+                        chip(cat.rawValue, selected: cat == kind.category) {
+                            if let first = cat.kinds.first { kind = first }
+                        }
                     }
                 }
-        )
-        .simultaneousGesture(
-            MagnifyGesture()
-                .onChanged { v in
-                    if scaleOrigin == nil { stopMotion(); scaleOrigin = scale }
-                    scale = min(max((scaleOrigin ?? scale) * v.magnification, 10), kind.maxScale)
-                }
-                .onEnded { _ in scaleOrigin = nil }
-        )
-        // Tap to stop coasting or auto-zoom; double-tap a point to zoom into it.
-        .simultaneousGesture(
-            SpatialTapGesture(count: 1).onEnded { _ in
-                if inertia.running || autoZoomTask != nil { stopMotion() }
             }
-        )
-        .simultaneousGesture(
-            SpatialTapGesture(count: 2).onEnded { value in startAutoZoom(at: value.location) }
-        )
+        }
     }
 
     private var kindChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) {
-                    ForEach(FractalKind.allCases) { k in
-                        let selected = k == kind
-                        Button {
-                            kind = k
-                        } label: {
-                            Text(k.rawValue)
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundStyle(selected ? Color.white : Color.primary)
-                                .padding(.horizontal, 14)
-                                .frame(minHeight: 38)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(selected ? .regular.tint(accent).interactive() : .regular.interactive(),
-                                     in: Capsule())
+                    ForEach(kind.category.kinds) { k in
+                        chip(k.rawValue, selected: k == kind) { kind = k }
                     }
                 }
             }
         }
     }
 
+    private func sliderRow(_ spec: SliderSpec, value: Binding<Double>) -> some View {
+        HStack(spacing: 12) {
+            Text(spec.label)
+                .foregroundStyle(.secondary)
+                .frame(width: 70, alignment: .leading)
+            Slider(value: value, in: spec.range, step: spec.step)
+            Text(formatNumber(value.wrappedValue, digits: 4))
+                .font(.footnote.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 44, alignment: .trailing)
+        }
+    }
+
     private var controls: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Picker("Palette", selection: $palette) {
-                    ForEach(FractalPalette.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.menu)
-                .tint(accent)
-                if kind.usesJuliaConstant {
-                    Picker("c", selection: $juliaIndex) {
-                        ForEach(Self.juliaPresets.indices, id: \.self) { i in
-                            let c = Self.juliaPresets[i]
-                            Text("c = \(formatNumber(c.re, digits: 5)) \(c.im < 0 ? "−" : "+") \(formatNumber(abs(c.im), digits: 5))i")
-                                .tag(i)
-                        }
+        ScrollView {
+            VStack(spacing: 8) {
+                HStack {
+                    Picker("Palette", selection: $palette) {
+                        ForEach(FractalPalette.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.menu)
                     .tint(accent)
+                    if kind.supportsColoring {
+                        Picker("Coloring", selection: $coloring) {
+                            ForEach(FractalColoring.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.menu)
+                        .tint(accent)
+                    }
+                    if !kind.variantNames.isEmpty {
+                        Picker(kind.variantLabel, selection: $variant) {
+                            ForEach(kind.variantNames.indices, id: \.self) { Text(kind.variantNames[$0]).tag($0) }
+                        }
+                        .pickerStyle(.menu)
+                        .tint(accent)
+                    }
+                    Spacer()
+                    Button {
+                        withAnimation(.smooth) { resetView() }
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 36, height: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: Capsule())
+                    .accessibilityLabel("Reset view")
                 }
-                Spacer()
-                Button {
-                    withAnimation(.smooth) { reset() }
-                } label: {
-                    Label("Reset", systemImage: "arrow.counterclockwise")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 34)
+                if kind.usesJuliaConstant {
+                    HStack {
+                        Picker("c", selection: $juliaIndex) {
+                            ForEach(Self.juliaPresets.indices, id: \.self) { i in
+                                let c = Self.juliaPresets[i]
+                                Text("c = \(formatNumber(c.re, digits: 5)) \(c.im < 0 ? "−" : "+") \(formatNumber(abs(c.im), digits: 5))i")
+                                    .tag(i)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .tint(accent)
+                        Spacer()
+                    }
                 }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: Capsule())
-            }
-            if !kind.isStructural {
+                if let spec = kind.detailSpec { sliderRow(spec, value: $detail) }
+                if let spec = kind.powerSpec { sliderRow(spec, value: $power) }
                 HStack(spacing: 12) {
-                    Text("Detail").foregroundStyle(.secondary)
-                    Slider(value: $detail, in: 50...1000, step: 10)
+                    Text("Auto-zoom")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 70, alignment: .leading)
+                    Slider(value: $zoomSpeed, in: 0.25...5)
+                    Text("\(formatNumber(pow(2, zoomSpeed), digits: 3))×/s")
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 52, alignment: .trailing)
                 }
-            }
-            HStack(spacing: 12) {
-                Text("Auto-zoom").foregroundStyle(.secondary)
-                Slider(value: $zoomSpeed, in: 0.25...5)
-                Text("\(formatNumber(pow(2, zoomSpeed), digits: 3))×/s")
-                    .font(.footnote.monospacedDigit())
+                Text(kind.style == .ray3D
+                     ? "Drag to rotate · pinch to move closer · double-tap a point to fly into it"
+                     : "Drag to pan · pinch to zoom · double-tap a point to zoom into it · tap to stop")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-                    .frame(width: 52, alignment: .trailing)
+                    .multilineTextAlignment(.center)
             }
-            Text("Double-tap a point to zoom into it · tap to stop")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { controlsHeight = $0 })
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(height: min(max(controlsHeight, 60), 230))
         .glassEffect(.regular, in: .rect(cornerRadius: 24))
     }
 }
