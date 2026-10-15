@@ -120,29 +120,18 @@ struct ConverterView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    categoryChips
-                    converterCard
-                    allUnitsCard
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
-                .frame(maxWidth: 720)
-                .frame(maxWidth: .infinity)
+        ScrollView {
+            VStack(spacing: 16) {
+                categoryChips
+                converterCard
+                allUnitsCard
             }
-            .scrollDismissesKeyboard(.interactively)
-            .background { AppBackground() }
-            .navigationTitle("Convert")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { inputFocused = false }
-                }
-            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private var categoryChips: some View {

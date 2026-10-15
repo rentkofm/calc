@@ -227,6 +227,11 @@ struct ComplexGraphView: View {
     @State private var dragOrigin: CGPoint?
     @State private var scaleOrigin: CGFloat?
     @State private var probe: Complex?
+    @State private var image: CGImage?
+    @State private var renderTask: Task<Void, Never>?
+    @State private var renderID = 0
+    @State private var inertia = Inertia()
+    @Environment(\.displayScale) private var displayScale
     @FocusState private var focused: Bool
 
     private var function: ComplexFn? {
@@ -246,18 +251,48 @@ struct ComplexGraphView: View {
         .frame(maxWidth: 720)
         .frame(maxWidth: .infinity)
         .onChange(of: text) { probe = nil }
+        .onChange(of: renderKey) { refresh() }
+        .onAppear { refresh() }
+    }
+
+    private struct RenderKey: Equatable {
+        var cx: Double, cy: Double, scale: Double
+        var size: CGSize
+        var text: String
+    }
+
+    private var renderKey: RenderKey {
+        RenderKey(cx: Double(center.x), cy: Double(center.y), scale: Double(scale), size: size, text: text)
+    }
+
+    /// Draws a quick low-res frame right away, then a native-resolution one once things settle.
+    private func refresh() {
+        renderTask?.cancel()
+        renderID += 1
+        let id = renderID
+        guard let f = function else { image = nil; return }
+        let (sz, c, sc, ds) = (size, center, scale, displayScale)
+        image = ComplexRenderer.render(f, size: sz, center: c, scale: sc, cell: 5)
+        renderTask = Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            if Task.isCancelled { return }
+            let cell = Raster.cell(for: sz, displayScale: ds)
+            let hi = await Task.detached(priority: .userInitiated) {
+                ComplexRenderer.render(f, size: sz, center: c, scale: sc, cell: cell)
+            }.value
+            if Task.isCancelled { return }
+            await MainActor.run { if id == renderID { image = hi } }
+        }
     }
 
     // MARK: Plane
 
     private var plane: some View {
         ZStack {
-            if let f = function, let image = render(f) {
+            if let image {
                 Image(decorative: image, scale: 1)
                     .resizable()
-                    .interpolation(.medium)
-            } else {
-                Color.clear
+                    .interpolation(.high)
             }
             Canvas { ctx, size in drawAxes(ctx, size) }
             probeOverlay
@@ -269,22 +304,29 @@ struct ComplexGraphView: View {
         .gesture(
             DragGesture(minimumDistance: 3)
                 .onChanged { v in
-                    if dragOrigin == nil { dragOrigin = center }
+                    if dragOrigin == nil { inertia.stop(); dragOrigin = center }
                     let o = dragOrigin ?? center
                     center = CGPoint(x: o.x - v.translation.width / scale,
                                      y: o.y + v.translation.height / scale)
                 }
-                .onEnded { _ in dragOrigin = nil }
+                .onEnded { v in
+                    dragOrigin = nil
+                    inertia.start(velocity: v.velocity) { dx, dy in
+                        center.x -= CGFloat(dx) / scale
+                        center.y += CGFloat(dy) / scale
+                    }
+                }
         )
         .simultaneousGesture(
             MagnifyGesture()
                 .onChanged { v in
-                    if scaleOrigin == nil { scaleOrigin = scale }
+                    if scaleOrigin == nil { inertia.stop(); scaleOrigin = scale }
                     scale = min(max((scaleOrigin ?? scale) * v.magnification, 1e-100), 1e100)
                 }
                 .onEnded { _ in scaleOrigin = nil }
         )
         .onTapGesture { location in
+            if inertia.running { inertia.stop(); return } // the first tap just catches the plane
             guard function != nil else { return }
             probe = toComplex(location, size)
             Haptics.tap()
@@ -299,51 +341,6 @@ struct ComplexGraphView: View {
     private func toScreen(_ z: Complex, _ size: CGSize) -> CGPoint {
         CGPoint(x: size.width / 2 + CGFloat(z.re - Double(center.x)) * scale,
                 y: size.height / 2 - CGFloat(z.im - Double(center.y)) * scale)
-    }
-
-    private func render(_ f: ComplexFn) -> CGImage? {
-        let cell: CGFloat = 3
-        let w = max(1, Int(size.width / cell)), h = max(1, Int(size.height / cell))
-        var pixels = [UInt8](repeating: 255, count: w * h * 4)
-        for j in 0..<h {
-            for i in 0..<w {
-                let p = CGPoint(x: (CGFloat(i) + 0.5) * size.width / CGFloat(w),
-                                y: (CGFloat(j) + 0.5) * size.height / CGFloat(h))
-                let v = f(toComplex(p, size))
-                let (r, g, b) = Self.color(for: v)
-                let o = (j * w + i) * 4
-                pixels[o] = r; pixels[o + 1] = g; pixels[o + 2] = b
-            }
-        }
-        guard let provider = CGDataProvider(data: Data(pixels) as CFData) else { return nil }
-        return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,
-                       space: CGColorSpaceCreateDeviceRGB(),
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
-    }
-
-    private static func color(for v: Complex) -> (UInt8, UInt8, UInt8) {
-        let r = v.modulus
-        guard r.isFinite, !v.re.isNaN, !v.im.isNaN else { return (70, 70, 74) }
-        if r == 0 { return (0, 0, 0) }
-        let hue = (v.argument + .pi) / (2 * .pi) * 6 // 0..6
-        let l = log2(r)
-        let value = 0.55 + 0.45 * (l - floor(l))
-        let sat = 0.85
-        // HSV -> RGB
-        let sector = Int(hue) % 6
-        let f = hue - floor(hue)
-        let p = value * (1 - sat), q = value * (1 - sat * f), t = value * (1 - sat * (1 - f))
-        let rgb: (Double, Double, Double)
-        switch sector {
-        case 0: rgb = (value, t, p)
-        case 1: rgb = (q, value, p)
-        case 2: rgb = (p, value, t)
-        case 3: rgb = (p, q, value)
-        case 4: rgb = (t, p, value)
-        default: rgb = (value, p, q)
-        }
-        return (UInt8(rgb.0 * 255), UInt8(rgb.1 * 255), UInt8(rgb.2 * 255))
     }
 
     private func drawAxes(_ ctx: GraphicsContext, _ size: CGSize) {

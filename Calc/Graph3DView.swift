@@ -18,6 +18,7 @@ struct Graph3DView: View {
     @State private var elevation = 0.6
     @State private var zoom: CGFloat = 1
     @State private var range = 5.0
+    @State private var inertia = Inertia()
     @State private var rainbow = true
     @State private var surfaceColor = Color.blue
     @State private var dragOrigin: (yaw: Double, elevation: Double)?
@@ -52,17 +53,23 @@ struct Graph3DView: View {
             .gesture(
                 DragGesture()
                     .onChanged { v in
-                        if dragOrigin == nil { dragOrigin = (yaw, elevation) }
+                        if dragOrigin == nil { inertia.stop(); dragOrigin = (yaw, elevation) }
                         let o = dragOrigin ?? (yaw, elevation)
                         yaw = o.yaw + Double(v.translation.width) * 0.01
                         elevation = min(max(o.elevation + Double(v.translation.height) * 0.008, -.pi / 2), .pi / 2)
                     }
-                    .onEnded { _ in dragOrigin = nil }
+                    .onEnded { v in
+                        dragOrigin = nil
+                        inertia.start(velocity: v.velocity) { dx, dy in
+                            yaw += dx * 0.01
+                            elevation = min(max(elevation + dy * 0.008, -.pi / 2), .pi / 2)
+                        }
+                    }
             )
             .simultaneousGesture(
                 MagnifyGesture()
                     .onChanged { v in
-                        if zoomOrigin == nil { zoomOrigin = zoom }
+                        if zoomOrigin == nil { inertia.stop(); zoomOrigin = zoom }
                         zoom = min(max((zoomOrigin ?? zoom) * v.magnification, 0.2), 20)
                     }
                     .onEnded { _ in zoomOrigin = nil }

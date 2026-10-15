@@ -39,7 +39,7 @@ struct GraphHubView: View {
     }
 }
 
-private extension View {
+extension View {
     func visible(_ on: Bool) -> some View {
         opacity(on ? 1 : 0)
             .allowsHitTesting(on)

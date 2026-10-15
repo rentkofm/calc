@@ -9,7 +9,7 @@ struct ContentView: View {
         TabView {
             Tab("Calculator", systemImage: "plus.forwardslash.minus") { CalculatorView() }
             Tab("Graph", systemImage: "chart.xyaxis.line") { GraphHubView() }
-            Tab("Convert", systemImage: "arrow.left.arrow.right") { ConverterView() }
+            Tab("Extras", systemImage: "square.grid.2x2") { ExtrasHubView() }
             Tab("Settings", systemImage: "gearshape") { SettingsView() }
         }
         .tint(accent.resolved(customHex: customHex))
