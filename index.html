@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#000000">
+  <meta name="description" content="A minimal periodic table reference with all 118 elements.">
+  <title>Elements</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230A84FF'/%3E%3Ctext x='32' y='43' font-family='-apple-system,Helvetica' font-size='30' font-weight='700' text-anchor='middle' fill='white'%3EHe%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true"><i></i><i></i><i></i></div>
+
+  <header class="top">
+    <div class="top-row">
+      <h1>Elements</h1>
+      <button class="icon-btn glass" id="open-settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </div>
+    <div class="top-row controls">
+      <label class="search glass">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Search elements" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+      </label>
+      <div class="seg glass" id="view-seg" role="group" aria-label="View"></div>
+    </div>
+  </header>
+
+  <main>
+    <div class="legend" id="legend" role="group" aria-label="Filter by category"></div>
+    <div id="table-wrap" class="table-wrap"><div id="table" class="table"></div></div>
+    <ul id="list" class="list glass" hidden></ul>
+    <p class="empty" id="empty" hidden>No matching elements.</p>
+  </main>
+
+  <dialog id="detail" aria-label="Element details"></dialog>
+  <dialog id="settings" aria-label="Settings"></dialog>
+
+  <script src="elements.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
