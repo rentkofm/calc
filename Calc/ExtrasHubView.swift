@@ -65,10 +65,10 @@ struct ExtrasHubView: View {
 
     static let topLevel: [Mode] = [.convert, .stats]
     static let groups: [ModeGroup] = [
-        ModeGroup(title: "Fractals", icon: "sparkles", modes: [.fractals, .pendulumFractal, .bifurcation, .hyperbolic]),
+        ModeGroup(title: "Fractals", icon: "sparkles", modes: [.fractals, .pendulumFractal, .bifurcation]),
         ModeGroup(title: "Chaos & Dynamics", icon: "tornado", modes: [.pendulum, .threeBody, .attractors, .cobweb]),
         ModeGroup(title: "Curves", icon: "scribble", modes: [.lissajous, .rose, .spirograph, .spaceFilling, .epicycles]),
-        ModeGroup(title: "Surfaces", icon: "infinity", modes: [.mobius, .minimal, .shapes]),
+        ModeGroup(title: "Geometry", icon: "infinity", modes: [.mobius, .minimal, .shapes, .hyperbolic]),
         ModeGroup(title: "Number Patterns & Series", icon: "number", modes: [.modular, .ulam, .sacks, .taylor, .fourier]),
         ModeGroup(title: "Automata & Patterns", icon: "square.grid.3x3", modes: [.life, .elementary, .langton, .turing]),
     ]
