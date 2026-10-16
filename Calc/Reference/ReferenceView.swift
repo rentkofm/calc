@@ -60,7 +60,7 @@ struct ReferenceView: View {
 
     private var results: some View {
         let hits = ReferenceStore.search(query)
-        return LazyVStack(spacing: 10, alignment: .leading) {
+        return LazyVStack(alignment: .leading, spacing: 10) {
             Text("\(hits.count) result\(hits.count == 1 ? "" : "s")").font(.footnote).foregroundStyle(.secondary)
             ForEach(Array(hits.prefix(300).enumerated()), id: \.offset) { _, hit in
                 RefCard(entry: hit.entry, tag: hit.section)

@@ -54,18 +54,18 @@ enum ReferenceStore {
     static func search(_ query: String) -> [(section: String, entry: RefEntry)] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return [] }
-        var out: [(String, RefEntry)] = []
+        var out: [(section: String, entry: RefEntry)] = []
         for s in sections {
             for g in s.groups {
                 for e in g.entries where e.term.lowercased().contains(q) || e.text.lowercased().contains(q)
                     || (e.formula?.lowercased().contains(q) ?? false) {
-                    out.append((s.title, e))
+                    out.append((section: s.title, entry: e))
                 }
             }
         }
         for e in formulaEntries where e.term.lowercased().contains(q) || e.text.lowercased().contains(q)
             || (e.formula?.lowercased().contains(q) ?? false) {
-            out.append(("Formulas", e))
+            out.append((section: "Formulas", entry: e))
         }
         return out
     }

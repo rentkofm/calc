@@ -72,7 +72,7 @@ struct RoseView: View {
 
     private var fractionText: String {
         if let f = Self.denominator(of: k) {
-            return f.q == 1 ? String(format: "k = %d  →  %d petals (odd k) or %d (even k)", f.p, f.p, 2 * f.p)
+            return f.q == 1 ? "k = \(f.p): \(f.p) petals if k is odd, \(2 * f.p) if even"
                             : "k = \(f.p)/\(f.q)"
         }
         return String(format: "k = %.2f (not a simple fraction)", k)

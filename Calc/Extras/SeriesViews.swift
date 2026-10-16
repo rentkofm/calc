@@ -26,10 +26,18 @@ struct TaylorSeriesView: View {
             switch self {
             case .sin:
                 var t = x
-                for k in 0..<terms { sum += t; t *= -x * x / Double((2 * k + 2) * (2 * k + 3)) }
+                for k in 0..<terms {
+                    sum += t
+                    let d: Double = Double((2 * k + 2) * (2 * k + 3))
+                    t = -t * x * x / d
+                }
             case .cos:
                 var t = 1.0
-                for k in 0..<terms { sum += t; t *= -x * x / Double((2 * k + 1) * (2 * k + 2)) }
+                for k in 0..<terms {
+                    sum += t
+                    let d: Double = Double((2 * k + 1) * (2 * k + 2))
+                    t = -t * x * x / d
+                }
             case .exp:
                 var t = 1.0
                 for k in 0..<terms { sum += t; t *= x / Double(k + 1) }

@@ -44,8 +44,18 @@ struct AttractorsView: View {
         var out: [SIMD3<Double>] = []
         out.reserveCapacity(Self.steps)
         for _ in 0..<Self.steps {
-            let k1 = deriv(p), k2 = deriv(p + k1 * (dt / 2)), k3 = deriv(p + k2 * (dt / 2)), k4 = deriv(p + k3 * dt)
-            p += (k1 + 2 * k2 + 2 * k3 + k4) * (dt / 6)
+            let h: Double = dt / 2
+            let k1: SIMD3<Double> = deriv(p)
+            let p2: SIMD3<Double> = p + k1 * h
+            let k2: SIMD3<Double> = deriv(p2)
+            let p3: SIMD3<Double> = p + k2 * h
+            let k3: SIMD3<Double> = deriv(p3)
+            let p4: SIMD3<Double> = p + k3 * dt
+            let k4: SIMD3<Double> = deriv(p4)
+            var sum: SIMD3<Double> = k1 + k4
+            sum += k2 * 2.0
+            sum += k3 * 2.0
+            p += sum * (dt / 6)
             out.append(p)
         }
         return out

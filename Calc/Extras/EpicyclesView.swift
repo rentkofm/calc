@@ -119,7 +119,8 @@ struct EpicyclesView: View {
                         Label(drawing ? "Cancel" : "Draw your own", systemImage: drawing ? "xmark" : "scribble")
                             .frame(maxWidth: .infinity, minHeight: 30)
                     }
-                    .buttonStyle(drawing ? .glass : .glassProminent)
+                    .buttonStyle(.glass)
+                    .tint(drawing ? nil : accent)
 
                     Menu {
                         ForEach(Self.shapes, id: \.self) { name in
