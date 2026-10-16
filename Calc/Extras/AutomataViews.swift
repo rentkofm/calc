@@ -24,10 +24,10 @@ private struct StepClock {
     mutating func steps(at date: Date, rate: Double) -> Int {
         defer { last = date }
         guard let last else { return 0 }
-        accumulator += min(date.timeIntervalSince(last), 0.1) * rate
+        accumulator += max(0, min(date.timeIntervalSince(last), 0.1)) * rate
         let n = Int(accumulator)
         accumulator -= Double(n)
-        return min(n, 400)
+        return max(0, min(n, 400))
     }
 }
 
