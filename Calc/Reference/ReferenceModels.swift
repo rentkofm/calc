@@ -24,6 +24,19 @@ struct RefSection: Identifiable {
     var count: Int { groups.reduce(0) { $0 + $1.entries.count } }
 }
 
+extension RefEntry {
+    /// How well the entry matches a lowercase query: 0 title starts with it, 1 title contains it,
+    /// 2 description/definition contains it, 3 only the formula contains it; nil for no match.
+    func matchRank(_ q: String) -> Int? {
+        let t = term.lowercased()
+        if t.hasPrefix(q) { return 0 }
+        if t.contains(q) { return 1 }
+        if text.lowercased().contains(q) { return 2 }
+        if formula?.lowercased().contains(q) ?? false { return 3 }
+        return nil
+    }
+}
+
 /// Short constructor used by the data files.
 func rx(_ id: String, _ term: String, _ text: String, _ formula: String? = nil) -> RefEntry {
     RefEntry(id: id, term: term, text: text, formula: formula)
@@ -54,19 +67,19 @@ enum ReferenceStore {
     static func search(_ query: String) -> [(section: String, entry: RefEntry)] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return [] }
-        var out: [(section: String, entry: RefEntry)] = []
+        var ranked: [(rank: Int, order: Int, section: String, entry: RefEntry)] = []
         for s in sections {
             for g in s.groups {
-                for e in g.entries where e.term.lowercased().contains(q) || e.text.lowercased().contains(q)
-                    || (e.formula?.lowercased().contains(q) ?? false) {
-                    out.append((section: s.title, entry: e))
+                for e in g.entries {
+                    if let r = e.matchRank(q) { ranked.append((r, ranked.count, s.title, e)) }
                 }
             }
         }
-        for e in formulaEntries where e.term.lowercased().contains(q) || e.text.lowercased().contains(q)
-            || (e.formula?.lowercased().contains(q) ?? false) {
-            out.append((section: "Formulas", entry: e))
+        for e in formulaEntries {
+            if let r = e.matchRank(q) { ranked.append((r, ranked.count, "Formulas", e)) }
         }
-        return out
+        // Title matches first, then descriptions, then formulas; otherwise keep the compendium order.
+        ranked.sort { $0.rank != $1.rank ? $0.rank < $1.rank : $0.order < $1.order }
+        return ranked.map { (section: $0.section, entry: $0.entry) }
     }
 }

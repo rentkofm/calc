@@ -56,7 +56,7 @@ final class PendulumModel: ObservableObject {
     /// Bumped when the fractal asks to simulate a point, so the Extras tab can switch to the simulator.
     @Published var launchTick = 0
     @Published var isPlaying = true
-    @Published var showTwin = true {
+    @Published var showTwin = false {
         didSet { if !showTwin { twinTrail.removeAll(); bitmap.dropTwin() } else { twin = main; twin.t1 += twinOffset } }
     }
     @Published var permanentTrails = false {

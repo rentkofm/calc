@@ -10,19 +10,25 @@ struct Graph3DView: View {
         ("Gaussian", "exp(-(x^2+y^2))"),
         ("Egg Crate", "sin(x)+cos(y)"),
     ]
-    private static let ranges: [Double] = [1, 2, 5, 10, 20, 50, 100]
+    private static let ranges: [Double] = [1, 2, 5, 10, 100, 1e3, 1e4, 1e6, 1e9, 1e12]
     private let n = 40
 
     @State private var text = "sin(x)*cos(y)"
     @State private var yaw = 0.7
     @State private var elevation = 0.6
-    @State private var zoom: CGFloat = 1
-    @State private var range = 5.0
+    /// Half-widths of the x and y domain, and a vertical stretch. Pinching rescales them without limit
+    /// (1e-6 … 1e12), so the surface can be followed out toward infinity.
+    @State private var xr = 5.0
+    @State private var yr = 5.0
+    @State private var zStretch = 1.0
+    @State private var size = CGSize(width: 320, height: 320)
+    @State private var zoomAxis: Axis3?
+    @State private var originRanges: (x: Double, y: Double, z: Double)?
+    private enum Axis3 { case x, y, z, all }
     @State private var inertia = Inertia()
     @State private var rainbow = true
     @State private var surfaceColor = Color.blue
     @State private var dragOrigin: (yaw: Double, elevation: Double)?
-    @State private var zoomOrigin: CGFloat?
     @Environment(\.graphFullscreen) private var fullscreen
     @FocusState private var focused: Bool
 
@@ -48,6 +54,7 @@ struct Graph3DView: View {
     private var surface: some View {
         Canvas { ctx, size in draw(ctx, size) }
             .frame(minHeight: 240)
+            .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { size = $0 })
             .modifier(GraphSurface())
             .overlay(alignment: .topTrailing) {
                 if !fullscreen.wrappedValue { EnterFullscreenButton().padding(10) }
@@ -71,34 +78,73 @@ struct Graph3DView: View {
             .simultaneousGesture(
                 MagnifyGesture()
                     .onChanged { v in
-                        if zoomOrigin == nil { inertia.stop(); zoomOrigin = zoom }
-                        zoom = min(max((zoomOrigin ?? zoom) * v.magnification, 0.2), 20)
+                        if originRanges == nil {
+                            inertia.stop()
+                            originRanges = (xr, yr, zStretch)
+                            zoomAxis = axis(at: v.startLocation)
+                        }
+                        guard let o = originRanges else { return }
+                        let m = max(Double(v.magnification), 1e-3)
+                        // Pinching out (m > 1) zooms in, i.e. shrinks the domain.
+                        if zoomAxis == .x || zoomAxis == .all { xr = min(max(o.x / m, 1e-6), 1e12) }
+                        if zoomAxis == .y || zoomAxis == .all { yr = min(max(o.y / m, 1e-6), 1e12) }
+                        if zoomAxis == .z { zStretch = min(max(o.z * m, 1e-3), 1e3) }
                     }
-                    .onEnded { _ in zoomOrigin = nil }
+                    .onEnded { _ in originRanges = nil; zoomAxis = nil }
             )
     }
 
-    private func draw(_ ctx: GraphicsContext, _ size: CGSize) {
-        let unit = Double(min(size.width, size.height)) * 0.38 * Double(zoom)
-        let cx = Double(size.width) / 2, cy = Double(size.height) / 2
-        let (cosY, sinY, cosE, sinE) = (cos(yaw), sin(yaw), cos(elevation), sin(elevation))
-
-        // Orthographic camera: yaw about the vertical axis, then tilt by `elevation`.
+    private struct Camera {
+        let cx, cy, unit, cosY, sinY, cosE, sinE: Double
         func project(_ X: Double, _ Y: Double, _ Z: Double) -> (point: CGPoint, depth: Double) {
             let x1 = X * cosY - Y * sinY
             let y1 = X * sinY + Y * cosY
             let up = Z * cosE + y1 * sinE
             return (CGPoint(x: cx + x1 * unit, y: cy - up * unit), y1 * cosE - Z * sinE)
         }
+    }
+
+    private func camera(_ size: CGSize) -> Camera {
+        Camera(cx: Double(size.width) / 2, cy: Double(size.height) / 2,
+               unit: Double(min(size.width, size.height)) * 0.38,
+               cosY: cos(yaw), sinY: sin(yaw), cosE: cos(elevation), sinE: sin(elevation))
+    }
+
+    /// The axis whose drawn line passes under the pinch, or `.all` when it starts away from every axis.
+    private func axis(at p: CGPoint) -> Axis3 {
+        let cam = camera(size)
+        let ends: [(Axis3, (Double, Double, Double))] = [(.x, (1, 0, 0)), (.y, (0, 1, 0)), (.z, (0, 0, 0.9))]
+        var best: (axis: Axis3, d: CGFloat)?
+        for (ax, e) in ends {
+            let a = cam.project(-e.0, -e.1, -e.2).point, b = cam.project(e.0, e.1, e.2).point
+            let ab = CGPoint(x: b.x - a.x, y: b.y - a.y)
+            let len2 = ab.x * ab.x + ab.y * ab.y
+            guard len2 > 1 else { continue }
+            let t = min(max(((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / len2, 0), 1)
+            let d = hypot(p.x - (a.x + t * ab.x), p.y - (a.y + t * ab.y))
+            if d < 36, d < (best?.d ?? .infinity) { best = (ax, d) }
+        }
+        return best?.axis ?? .all
+    }
+
+    private func draw(_ ctx: GraphicsContext, _ size: CGSize) {
+        let cam = camera(size)
+        func project(_ X: Double, _ Y: Double, _ Z: Double) -> (point: CGPoint, depth: Double) { cam.project(X, Y, Z) }
 
         // Axes
         let axisColor = GraphicsContext.Shading.color(.secondary.opacity(0.7))
-        for (end, label) in [((1.0, 0.0, 0.0), "x"), ((0.0, 1.0, 0.0), "y"), ((0.0, 0.0, 0.9), "z")] {
+        let axes: [(Axis3, (Double, Double, Double), String)] = [
+            (.x, (1, 0, 0), "x ±\(formatNumber(xr, digits: 3))"),
+            (.y, (0, 1, 0), "y ±\(formatNumber(yr, digits: 3))"),
+            (.z, (0, 0, 0.9), "z"),
+        ]
+        for (ax, end, label) in axes {
             let a = project(-end.0, -end.1, -end.2).point
             let b = project(end.0, end.1, end.2).point
             var line = Path()
             line.move(to: a); line.addLine(to: b)
-            ctx.stroke(line, with: axisColor, lineWidth: 1)
+            let live = zoomAxis == ax
+            ctx.stroke(line, with: live ? .color(.accentColor) : axisColor, lineWidth: live ? 3 : 1)
             ctx.draw(Text(label).font(.caption.weight(.semibold)).foregroundStyle(.secondary), at: b)
         }
 
@@ -109,8 +155,8 @@ struct Graph3DView: View {
         var zs = [Double](repeating: .nan, count: stride * stride)
         for j in 0...n {
             for i in 0...n {
-                let x = -range + 2 * range * Double(i) / Double(n)
-                let y = -range + 2 * range * Double(j) / Double(n)
+                let x = -xr + 2 * xr * Double(i) / Double(n)
+                let y = -yr + 2 * yr * Double(j) / Double(n)
                 zs[j * stride + i] = f(x, y)
             }
         }
@@ -132,7 +178,7 @@ struct Graph3DView: View {
                 let h = min(max((z - mid) / half, -1.5), 1.5)
                 let X = -1 + 2 * Double(i) / Double(n)
                 let Y = -1 + 2 * Double(j) / Double(n)
-                let pr = project(X, Y, h * 0.5)
+                let pr = project(X, Y, h * 0.5 * zStretch)
                 pts[j * stride + i] = (pr.point, pr.depth, h)
             }
         }
@@ -238,11 +284,14 @@ struct Graph3DView: View {
             ), supportsOpacity: false)
             .labelsHidden()
             .fixedSize()
-            Picker("Range", selection: $range) {
-                ForEach(Self.ranges, id: \.self) { r in Text("±\(formatNumber(r))").tag(r) }
+            Menu {
+                ForEach(Self.ranges, id: \.self) { r in
+                    Button("±\(formatNumber(r))") { xr = r; yr = r; zStretch = 1 }
+                }
+            } label: {
+                Text("±\(formatNumber(max(xr, yr), digits: 3))").font(.subheadline.weight(.semibold)).monospacedDigit()
             }
-            .pickerStyle(.menu)
-            .labelsHidden()
+            .accessibilityLabel("Range")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

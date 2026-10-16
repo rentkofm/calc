@@ -52,7 +52,8 @@ enum Raster {
 
     /// Builds an image by calling `pixel` with the point-space coordinates of each pixel centre.
     /// Rows are computed in parallel.
-    static func image(size: CGSize, cell: CGFloat,
+    /// `cancelled` lets a superseded render bail out: a half-finished image is dropped (nil), never shown.
+    static func image(size: CGSize, cell: CGFloat, cancelled: (() -> Bool)? = nil,
                       pixel: (_ sx: Double, _ sy: Double) -> (UInt8, UInt8, UInt8)) -> CGImage? {
         let w = max(1, Int(size.width / cell)), h = max(1, Int(size.height / cell))
         let kx = Double(size.width) / Double(w), ky = Double(size.height) / Double(h)
@@ -68,6 +69,7 @@ enum Raster {
                 }
             }
         }
+        if cancelled?() == true { return nil }
         guard let provider = CGDataProvider(data: Data(data) as CFData) else { return nil }
         return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,
                        space: CGColorSpaceCreateDeviceRGB(),

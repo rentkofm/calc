@@ -15,6 +15,16 @@ struct ReferenceView: View {
             .navigationTitle("Reference")
             .searchable(text: $query, prompt: "Search symbols, theorems, terms…")
             .scrollDismissesKeyboard(.interactively)
+            .navigationDestination(for: String.self) { id in
+                if id == "formulas" {
+                    FormulasView()
+                        .background { AppBackground() }
+                        .navigationTitle("Formulas")
+                        .navigationBarTitleDisplayMode(.inline)
+                } else if let section = ReferenceStore.sections.first(where: { $0.id == id }) {
+                    ReferenceSectionView(section: section)
+                }
+            }
         }
     }
 
@@ -22,21 +32,14 @@ struct ReferenceView: View {
 
     private var home: some View {
         VStack(spacing: 14) {
-            NavigationLink {
-                FormulasView()
-                    .background { AppBackground() }
-                    .navigationTitle("Formulas")
-                    .navigationBarTitleDisplayMode(.inline)
-            } label: {
+            NavigationLink(value: "formulas") {
                 card(icon: "function", title: "Formulas", detail: "Geometry, algebra, trig, calculus, physics, finance and more")
             }
             .buttonStyle(.plain)
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 ForEach(ReferenceStore.sections) { section in
-                    NavigationLink {
-                        ReferenceSectionView(section: section)
-                    } label: {
+                    NavigationLink(value: section.id) {
                         VStack(alignment: .leading, spacing: 8) {
                             Image(systemName: section.icon).font(.title2).foregroundStyle(accent)
                             Text(section.title).font(.headline).multilineTextAlignment(.leading)
@@ -45,6 +48,7 @@ struct ReferenceView: View {
                         .frame(maxWidth: .infinity, minHeight: 110, alignment: .topLeading)
                         .padding(14)
                         .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                        .contentShape(.rect(cornerRadius: 22))
                     }
                     .buttonStyle(.plain)
                 }
@@ -84,6 +88,7 @@ struct ReferenceView: View {
         }
         .padding(16)
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        .contentShape(.rect(cornerRadius: 22))
     }
 }
 
@@ -99,7 +104,9 @@ struct ReferenceSectionView: View {
         return section.groups.compactMap { g in
             guard selected == nil || selected == g.title else { return nil }
             guard !q.isEmpty else { return g }
-            let hits = g.entries.filter { $0.term.lowercased().contains(q) || $0.text.lowercased().contains(q) }
+            let hits = g.entries.compactMap { e in e.matchRank(q).map { (rank: $0, entry: e) } }
+                .enumerated().sorted { $0.element.rank != $1.element.rank ? $0.element.rank < $1.element.rank : $0.offset < $1.offset }
+                .map { $0.element.entry }
             return hits.isEmpty ? nil : RefGroup(g.title, hits)
         }
     }
@@ -177,7 +184,8 @@ struct RefCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        // A plain material rather than glass: a section can hold hundreds of cards and glass is costly per card.
+        .background(.thinMaterial, in: .rect(cornerRadius: 20))
         .contextMenu {
             Button("Copy", systemImage: "doc.on.doc") {
                 UIPasteboard.general.string = [entry.term, entry.text, entry.formula].compactMap { $0 }.joined(separator: "\n")

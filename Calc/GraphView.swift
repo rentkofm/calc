@@ -16,6 +16,7 @@ struct SavedGraph: Identifiable, Codable {
     var cx: Double
     var cy: Double
     var scale: Double
+    var scaleY: Double? = nil
 }
 
 private struct PoiKey: Hashable {
@@ -52,9 +53,14 @@ struct GraphView: View {
 
     @State private var center = CGPoint.zero
     @State private var scale: CGFloat = 40
+    /// Vertical pixels per unit. Equal to `scale` until the user pinches along one axis.
+    @State private var scaleY: CGFloat = 40
+    @State private var scaleYOrigin: CGFloat?
+    @State private var zoomAxis: ZoomAxis?
     @State private var canvasSize = CGSize(width: 320, height: 320)
     @State private var dragOrigin: CGPoint?
     @State private var scaleOrigin: CGFloat?
+    private enum ZoomAxis { case x, y, both }
     @State private var inertiaTask: Task<Void, Never>?
     @State private var coasting = false
     @State private var selected: SelectedPoint?
@@ -128,7 +134,7 @@ struct GraphView: View {
         if title.isEmpty { title = existing.map { list[$0].name } ?? "Graph \(list.count + 1)" }
         let snapshot = SavedGraph(id: existing.map { list[$0].id } ?? UUID(), name: title, date: Date(),
                                   rows: rows, sliders: sliders, cx: Double(center.x), cy: Double(center.y),
-                                  scale: Double(scale))
+                                  scale: Double(scale), scaleY: Double(scaleY))
         if let idx = existing { list[idx] = snapshot } else { list.insert(snapshot, at: 0) }
         currentSavedID = snapshot.id
         writeSaved(list)
@@ -141,6 +147,7 @@ struct GraphView: View {
         sliders = g.sliders
         center = CGPoint(x: g.cx, y: g.cy)
         scale = CGFloat(g.scale)
+        scaleY = CGFloat(g.scaleY ?? g.scale)
         currentSavedID = g.id
         selected = nil
         showSaved = false
@@ -155,12 +162,12 @@ struct GraphView: View {
 
     private func toScreen(_ x: Double, _ y: Double, _ size: CGSize) -> CGPoint {
         CGPoint(x: size.width / 2 + CGFloat(x - Double(center.x)) * scale,
-                y: size.height / 2 - CGFloat(y - Double(center.y)) * scale)
+                y: size.height / 2 - CGFloat(y - Double(center.y)) * scaleY)
     }
 
     private func toGraph(_ p: CGPoint, _ size: CGSize) -> (x: Double, y: Double) {
         (Double(center.x) + Double(p.x - size.width / 2) / Double(scale),
-         Double(center.y) - Double(p.y - size.height / 2) / Double(scale))
+         Double(center.y) - Double(p.y - size.height / 2) / Double(scaleY))
     }
 
     // MARK: Canvas
@@ -176,7 +183,7 @@ struct GraphView: View {
                         if dragOrigin == nil { stopInertia(); dragOrigin = center }
                         let o = dragOrigin ?? center
                         center = CGPoint(x: o.x - v.translation.width / scale,
-                                         y: o.y + v.translation.height / scale)
+                                         y: o.y + v.translation.height / scaleY)
                     }
                     .onEnded { v in
                         dragOrigin = nil
@@ -186,10 +193,18 @@ struct GraphView: View {
             .simultaneousGesture(
                 MagnifyGesture()
                     .onChanged { v in
-                        if scaleOrigin == nil { stopInertia(); scaleOrigin = scale }
-                        scale = min(max((scaleOrigin ?? scale) * v.magnification, 1e-100), 1e100)
+                        if scaleOrigin == nil {
+                            stopInertia()
+                            scaleOrigin = scale
+                            scaleYOrigin = scaleY
+                            zoomAxis = axis(at: v.startLocation)
+                        }
+                        let m = v.magnification
+                        let (sx, sy) = (scaleOrigin ?? scale, scaleYOrigin ?? scaleY)
+                        if zoomAxis != .y { scale = min(max(sx * m, 1e-100), 1e100) }
+                        if zoomAxis != .x { scaleY = min(max(sy * m, 1e-100), 1e100) }
                     }
-                    .onEnded { _ in scaleOrigin = nil }
+                    .onEnded { _ in scaleOrigin = nil; scaleYOrigin = nil; zoomAxis = nil }
             )
             .onTapGesture { location in handleTap(at: location) }
             .overlay { selectionOverlay }
@@ -199,6 +214,17 @@ struct GraphView: View {
             .overlay(alignment: .topTrailing) {
                 if !fullscreen.wrappedValue { trailingControls.padding(10) }
             }
+    }
+
+    /// A pinch that starts on an axis line stretches only that axis; anywhere else zooms both.
+    private func axis(at p: CGPoint) -> ZoomAxis {
+        let o = toScreen(0, 0, canvasSize)
+        let reach: CGFloat = 36
+        let nearX = abs(p.y - o.y) < reach   // on the horizontal (x) axis
+        let nearY = abs(p.x - o.x) < reach   // on the vertical (y) axis
+        if nearX && !nearY { return .x }
+        if nearY && !nearX { return .y }
+        return .both
     }
 
     private var leadingControls: some View {
@@ -236,7 +262,6 @@ struct GraphView: View {
 
     private var trailingControls: some View {
         HStack(spacing: 8) {
-            panelToggle
             EnterFullscreenButton()
         }
     }
@@ -323,7 +348,7 @@ struct GraphView: View {
                 try? await Task.sleep(for: .milliseconds(16))
                 if Task.isCancelled { return }
                 center.x -= CGFloat(vx * dt) / scale
-                center.y += CGFloat(vy * dt) / scale
+                center.y += CGFloat(vy * dt) / scaleY
                 vx *= decay
                 vy *= decay
             }
@@ -393,7 +418,7 @@ struct GraphView: View {
             guard gx.isFinite, gy.isFinite else { selected = nil; return }
 
             // Snap to a whole-number point if the curve passes exactly through one nearby.
-            let radius = Double(22 / scale)
+            let radius = Double(22 / min(scale, scaleY))
             if radius <= 25, abs(gx) < 1e9, abs(gy) < 1e9 {
                 var bestDist = Double.infinity
                 for nx in Int(floor(gx - radius))...Int(ceil(gx + radius)) {
@@ -538,16 +563,16 @@ struct GraphView: View {
     // MARK: Drawing
 
     private func draw(_ ctx: GraphicsContext, _ size: CGSize) {
-        let s = scale
-        let step = Self.niceStep(60.0 / Double(s))
-        let minX = Double(center.x) - Double(size.width / 2 / s)
-        let maxX = Double(center.x) + Double(size.width / 2 / s)
-        let minY = Double(center.y) - Double(size.height / 2 / s)
-        let maxY = Double(center.y) + Double(size.height / 2 / s)
+        let stepX = Self.niceStep(60.0 / Double(scale))
+        let stepY = Self.niceStep(60.0 / Double(scaleY))
+        let minX = Double(center.x) - Double(size.width / 2 / scale)
+        let maxX = Double(center.x) + Double(size.width / 2 / scale)
+        let minY = Double(center.y) - Double(size.height / 2 / scaleY)
+        let maxY = Double(center.y) + Double(size.height / 2 / scaleY)
         let origin = toScreen(0, 0, size)
 
-        let xs = Self.gridValues(minX, maxX, step)
-        let ys = Self.gridValues(minY, maxY, step)
+        let xs = Self.gridValues(minX, maxX, stepX)
+        let ys = Self.gridValues(minY, maxY, stepY)
 
         if showGrid {
             var grid = Path()
@@ -562,18 +587,20 @@ struct GraphView: View {
             ctx.stroke(grid, with: .color(.secondary.opacity(0.25)), lineWidth: 0.5)
         }
 
-        var axes = Path()
-        axes.move(to: CGPoint(x: 0, y: origin.y)); axes.addLine(to: CGPoint(x: size.width, y: origin.y))
-        axes.move(to: CGPoint(x: origin.x, y: 0)); axes.addLine(to: CGPoint(x: origin.x, y: size.height))
-        ctx.stroke(axes, with: .color(.secondary.opacity(0.8)), lineWidth: 1)
+        var hAxis = Path(), vAxis = Path()
+        hAxis.move(to: CGPoint(x: 0, y: origin.y)); hAxis.addLine(to: CGPoint(x: size.width, y: origin.y))
+        vAxis.move(to: CGPoint(x: origin.x, y: 0)); vAxis.addLine(to: CGPoint(x: origin.x, y: size.height))
+        let live = Color.accentColor
+        ctx.stroke(hAxis, with: zoomAxis == .x ? .color(live) : .color(.secondary.opacity(0.8)), lineWidth: zoomAxis == .x ? 3 : 1)
+        ctx.stroke(vAxis, with: zoomAxis == .y ? .color(live) : .color(.secondary.opacity(0.8)), lineWidth: zoomAxis == .y ? 3 : 1)
 
         let labelY = min(max(origin.y + 3, 4), size.height - 16)
         let labelX = min(max(origin.x + 4, 4), size.width - 36)
-        for lx in xs where abs(lx) > step / 2 {
+        for lx in xs where abs(lx) > stepX / 2 {
             ctx.draw(Text(Self.label(lx)).font(.caption2).foregroundStyle(.secondary),
                      at: CGPoint(x: toScreen(lx, 0, size).x, y: labelY), anchor: .top)
         }
-        for ly in ys where abs(ly) > step / 2 {
+        for ly in ys where abs(ly) > stepY / 2 {
             ctx.draw(Text(Self.label(ly)).font(.caption2).foregroundStyle(.secondary),
                      at: CGPoint(x: labelX, y: toScreen(0, ly, size).y), anchor: .leading)
         }

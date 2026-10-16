@@ -17,6 +17,7 @@ struct PendulumFractalView: View {
     @Environment(\.appAccent) private var accent
     @Environment(\.colorScheme) private var scheme
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.openExtras) private var openExtras
 
     enum Quality: String, CaseIterable, Identifiable {
         case fast = "Fast", normal = "Normal", fine = "Fine"
@@ -85,10 +86,7 @@ struct PendulumFractalView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            ZStack(alignment: .topTrailing) {
-                canvas
-                InfoButton(keys: infoKeys).padding(10)
-            }
+            canvas
             controls
         }
         .onChange(of: renderKey) { _, _ in
@@ -121,7 +119,7 @@ struct PendulumFractalView: View {
 
         renderer.request(viewport: Viewport(center: center, scale: s, size: sz), displayScale: displayScale) { cell, quick in
             let c = quick ? cell : max(cell, minCell)
-            return Raster.image(size: sz, cell: c) { sx, sy in
+            return Raster.image(size: sz, cell: c, cancelled: { !quick && tok.cancelled }) { sx, sy in
                 // A superseded sharp render bails out fast; coarse in-motion frames always finish.
                 if !quick && tok.cancelled { return (0, 0, 0) }
                 // Angles are periodic, so the plane repeats forever.
@@ -178,11 +176,9 @@ struct PendulumFractalView: View {
         ZStack {
             Color.black
             if display.animated {
-                ViewportImage(image: field.image, viewport: field.imageViewport,
-                              center: center, scale: scale, size: size)
+                tiled(field.image, field.imageViewport)
             } else {
-                ViewportImage(image: renderer.image, viewport: renderer.viewport,
-                              center: center, scale: scale, size: size)
+                tiled(renderer.image, renderer.viewport)
             }
             markerView
             TimelineView(.animation(paused: !display.animated || !playing || !active)) { timeline in
@@ -254,6 +250,27 @@ struct PendulumFractalView: View {
             }
         )
         .accessibilityLabel("Double pendulum fractal. Drag to pan, pinch to zoom, tap to pick a starting position.")
+    }
+
+    /// The picture repeats every 2π in both angles, so a frame that is a little behind the view (while panning
+    /// or zooming out) is padded with copies of itself instead of showing an empty edge.
+    @ViewBuilder
+    private func tiled(_ image: CGImage?, _ vp: Viewport) -> some View {
+        if image != nil, vp.scale > 0, size.width > 0 {
+            let k = scale / CGFloat(vp.scale)
+            let d = vp.center.difference(from: center)
+            let period = 2 * Double.pi
+            let w = vp.size.width * k, h = vp.size.height * k
+            ForEach(Array([-1, 0, 1].flatMap { i in [-1, 0, 1].map { j in [i, j] } }), id: \.self) { ij in
+                let dx = Double(ij[0]) * period, dy = Double(ij[1]) * period
+                let cx = size.width / 2 + CGFloat((d.dx + dx) * Double(scale))
+                let cy = size.height / 2 - CGFloat((d.dy + dy) * Double(scale))
+                if abs(cx - size.width / 2) < (w + size.width) / 2, abs(cy - size.height / 2) < (h + size.height) / 2 {
+                    ViewportImage(image: image, viewport: Viewport(center: vp.center.moved(dx: dx, dy: dy), scale: vp.scale, size: vp.size),
+                                  center: center, scale: scale, size: size)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -338,6 +355,12 @@ struct PendulumFractalView: View {
                         .monospacedDigit().frame(width: 56, alignment: .trailing)
                 }
             }
+
+            Button { openExtras(.pendulum) } label: {
+                Label("Double pendulum", systemImage: "waveform.path")
+                    .frame(maxWidth: .infinity, minHeight: 30)
+            }
+            .buttonStyle(.glass)
 
             Toggle(isOn: $highlight) { Label("Highlight islands of stability", systemImage: "sparkles") }
                 .padding(.horizontal, 4)

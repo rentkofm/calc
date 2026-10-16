@@ -7,6 +7,7 @@ struct PendulumSimulatorView: View {
     @Environment(\.appAccent) private var accent
     /// Fine-adjust step is 10^-fineExp (degrees for angles, rad/s for velocities).
     @State private var fineExp = 0
+    @Environment(\.openExtras) private var openExtras
 
     var body: some View {
         VStack(spacing: 12) {
@@ -22,10 +23,6 @@ struct PendulumSimulatorView: View {
                                                                   style: .continuous))
                 .ignoresSafeArea(edges: .top)
                 .accessibilityLabel("Double pendulum simulation")
-                InfoButton(keys: ["pendulum.double", "pendulum.equations", "pendulum.energy", "pendulum.chaos",
-                                  "pendulum.twin", "pendulum.lyapunov", "pendulum.modes", "pendulum.sound",
-                                  "pendulum.rk4", "pendulum.reliability", "pendulum.presets"])
-                    .padding(10)
             }
 
             controls
@@ -124,6 +121,14 @@ struct PendulumSimulatorView: View {
                     .buttonStyle(.glass)
                 }
             }
+
+            Button {
+                openExtras(.pendulumFractal)
+            } label: {
+                Label("Pendulum fractal", systemImage: "square.grid.3x3.fill")
+                    .frame(maxWidth: .infinity, minHeight: 32)
+            }
+            .buttonStyle(.glass)
 
             if let note = model.activeNote {
                 Text(note)

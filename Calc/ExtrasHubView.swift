@@ -1,5 +1,10 @@
 import SwiftUI
 
+extension EnvironmentValues {
+    /// Lets a tool jump to another Extras page (e.g. pendulum ↔ pendulum fractal).
+    @Entry var openExtras: (ExtrasHubView.Mode) -> Void = { _ in }
+}
+
 /// All the Extras tools behind one dropdown menu. Pages are created the first time you visit them and
 /// then kept alive, so each tool keeps its state when you switch away and back.
 struct ExtrasHubView: View {
@@ -11,7 +16,7 @@ struct ExtrasHubView: View {
         case cobweb = "Logistic Cobweb"
         case lissajous = "Lissajous Curves", rose = "Rose Curves", spirograph = "Spirograph"
         case spaceFilling = "Space-Filling Curves", epicycles = "Fourier Epicycles"
-        case mobius = "Möbius & Klein", minimal = "Minimal Surfaces"
+        case mobius = "Möbius & Klein", minimal = "Minimal Surfaces", shapes = "3D Shapes"
         case modular = "Modular Circle", ulam = "Ulam Spiral", sacks = "Sacks Spiral"
         case taylor = "Taylor Series", fourier = "Fourier Series"
         case life = "Game of Life", elementary = "Rule 30 & 110", langton = "Langton’s Ant", turing = "Turing Patterns"
@@ -37,6 +42,7 @@ struct ExtrasHubView: View {
             case .epicycles: return "gearshape.2"
             case .mobius: return "infinity"
             case .minimal: return "drop"
+            case .shapes: return "cube"
             case .modular: return "heart"
             case .ulam: return "spiral"
             case .sacks: return "hurricane"
@@ -62,7 +68,7 @@ struct ExtrasHubView: View {
         ModeGroup(title: "Fractals", icon: "sparkles", modes: [.fractals, .pendulumFractal, .bifurcation, .hyperbolic]),
         ModeGroup(title: "Chaos & Dynamics", icon: "tornado", modes: [.pendulum, .threeBody, .attractors, .cobweb]),
         ModeGroup(title: "Curves", icon: "scribble", modes: [.lissajous, .rose, .spirograph, .spaceFilling, .epicycles]),
-        ModeGroup(title: "Surfaces", icon: "infinity", modes: [.mobius, .minimal]),
+        ModeGroup(title: "Surfaces", icon: "infinity", modes: [.mobius, .minimal, .shapes]),
         ModeGroup(title: "Number Patterns & Series", icon: "number", modes: [.modular, .ulam, .sacks, .taylor, .fourier]),
         ModeGroup(title: "Automata & Patterns", icon: "square.grid.3x3", modes: [.life, .elementary, .langton, .turing]),
     ]
@@ -81,6 +87,7 @@ struct ExtrasHubView: View {
                 }
             }
             .environmentObject(pendulum)
+            .environment(\.openExtras, { mode = $0 })
             .background { AppBackground() }
             .onChange(of: mode) { _, new in
                 visited.insert(new)
@@ -156,6 +163,7 @@ struct ExtrasHubView: View {
         case .epicycles: EpicyclesView(active: live)
         case .mobius: SurfacesView(active: live, minimal: false)
         case .minimal: SurfacesView(active: live, minimal: true)
+        case .shapes: ShapesView(active: live)
         case .modular: ModularCircleView(active: live)
         case .ulam: PrimeSpiralView(sacks: false)
         case .sacks: PrimeSpiralView(sacks: true)

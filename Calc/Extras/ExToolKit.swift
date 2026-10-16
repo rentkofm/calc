@@ -24,14 +24,11 @@ struct ExToolPage<Display: View, Panel: View>: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            ZStack(alignment: .topTrailing) {
-                display
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipShape(shape)
-                    .glassEffect(.regular, in: shape)
-                    .ignoresSafeArea(edges: .top)
-                InfoButton(keys: info).padding(10)
-            }
+            display
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(shape)
+                .glassEffect(.regular, in: shape)
+                .ignoresSafeArea(edges: .top)
             ExPanel(maxHeight: panelHeight) { panel }
         }
     }
