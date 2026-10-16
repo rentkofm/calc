@@ -8,6 +8,8 @@ final class PendulumSound {
     // Written on the main thread, read on the audio thread (benign races on plain values).
     private var startT1 = 2.0
     private var startT2 = 2.5
+    private var startW1 = 0.0
+    private var startW2 = 0.0
     private var generation = 0
     private var timeScale = 256.0
     private var masterOn = false
@@ -15,8 +17,8 @@ final class PendulumSound {
     private let engine = AVAudioEngine()
     private var running = false
 
-    func restart(t1: Double, t2: Double) {
-        startT1 = t1; startT2 = t2
+    func restart(t1: Double, t2: Double, w1: Double = 0, w2: Double = 0) {
+        startT1 = t1; startT2 = t2; startW1 = w1; startW2 = w2
         generation &+= 1
     }
 
@@ -32,21 +34,25 @@ final class PendulumSound {
         let rate = engine.outputNode.outputFormat(forBus: 0).sampleRate
         guard rate > 0 else { return }
 
-        var state = PendulumState(t1: startT1, t2: startT2)
+        var state = PendulumState(t1: startT1, t2: startT2, w1: startW1, w2: startW2)
         var seenGeneration = generation
         var master: Float = 0
-        // One-pole DC blockers: the raw angle can drift (e.g. when the pendulum spins over the top).
-        var prevX: (Float, Float) = (0, 0)
+        // Angles are wrapped to ±π (a spinning bob becomes a sawtooth), then DC-blocked.
+        var prevX: (Float, Float) = (Self.wrap(Float(startT1)), Self.wrap(Float(startT2)))
         var prevY: (Float, Float) = (0, 0)
         let r: Float = 0.999
+        // Slow peak follower so a tiny oscillation is as loud as a big one (stereo balance is kept).
+        var env: Float = 0
+        let envDecay = expf(-1 / (Float(rate) * 4))
 
         let node = AVAudioSourceNode { [weak self] _, _, frames, abl -> OSStatus in
             guard let self else { return noErr }
             let buffers = UnsafeMutableAudioBufferListPointer(abl)
             if seenGeneration != self.generation {
                 seenGeneration = self.generation
-                state = PendulumState(t1: self.startT1, t2: self.startT2)
-                prevX = (Float(state.t1), Float(state.t2)); prevY = (0, 0)
+                state = PendulumState(t1: self.startT1, t2: self.startT2, w1: self.startW1, w2: self.startW2)
+                prevX = (Self.wrap(Float(state.t1)), Self.wrap(Float(state.t2))); prevY = (0, 0)
+                env = 0
             }
             let mTarget: Float = self.masterOn ? 1 : 0
             let dt = self.timeScale / rate                       // simulated seconds per audio sample
@@ -59,11 +65,13 @@ final class PendulumSound {
                 var left: Float = 0, right: Float = 0
                 if !silent {
                     for _ in 0..<sub { PendulumPhysics.step(&state, dt: h) }
-                    let x = (Float(state.t1), Float(state.t2))
+                    let x = (Self.wrap(Float(state.t1)), Self.wrap(Float(state.t2)))
                     prevY = (x.0 - prevX.0 + r * prevY.0, x.1 - prevX.1 + r * prevY.1)
                     prevX = x
-                    left = tanhf(0.5 * prevY.0) * master * 0.6
-                    right = tanhf(0.5 * prevY.1) * master * 0.6
+                    env = max(max(abs(prevY.0), abs(prevY.1)), env * envDecay)
+                    let gain = 0.6 * master / max(env, 0.003)   // |y| <= env, so output stays within ±0.6
+                    left = prevY.0 * gain
+                    right = prevY.1 * gain
                 }
                 if buffers.count >= 2 {
                     buffers[0].mData?.assumingMemoryBound(to: Float.self)[frame] = left
@@ -83,4 +91,6 @@ final class PendulumSound {
     }
 
     func stop() { masterOn = false }
+
+    private static func wrap(_ a: Float) -> Float { a - 2 * .pi * roundf(a / (2 * .pi)) }
 }

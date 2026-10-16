@@ -57,7 +57,7 @@ final class PendulumModel: ObservableObject {
     @Published var launchTick = 0
     @Published var isPlaying = true
     @Published var showTwin = true {
-        didSet { if !showTwin { twinTrail.removeAll(); bitmap.dropTwin() } else { twin = main; twin.t1 += 1e-6 } }
+        didSet { if !showTwin { twinTrail.removeAll(); bitmap.dropTwin() } else { twin = main; twin.t1 += twinOffset } }
     }
     @Published var permanentTrails = false {
         didSet { trail.removeAll(); twinTrail.removeAll(); bitmap.clear() }
@@ -72,6 +72,23 @@ final class PendulumModel: ObservableObject {
     /// Starting angles (radians) used by Reset; set by the sliders, presets or by tapping the fractal.
     @Published var startT1 = 2.0
     @Published var startT2 = 2.5
+    /// Starting angular velocities (rad/s).
+    @Published var startW1 = 0.0
+    @Published var startW2 = 0.0
+    /// The chaos twin starts 10^twinExp radians away in θ₁.
+    @Published var twinExp = -6.0 { didSet { reset() } }
+    @Published var twinColor: Color {
+        didSet { UserDefaults.standard.set(twinColor.hex, forKey: "pendulumTwinColor") }
+    }
+    @Published private(set) var activePreset: PendulumPreset?
+
+    var twinOffset: Double { pow(10, twinExp) }
+
+    /// The active preset's note, while the start still matches the preset.
+    var activeNote: String? {
+        guard let p = activePreset, p.t1 == startT1, p.t2 == startT2, p.w1 == startW1, p.w2 == startW2 else { return nil }
+        return "\(p.name): \(p.note)"
+    }
 
     var speed: Double { pow(2, speedExp.rounded()) }
 
@@ -85,24 +102,35 @@ final class PendulumModel: ObservableObject {
     private let sound = PendulumSound()
     static let maxTrail = 800
 
-    init() { reset() }
-
-    func reset() {
-        main = PendulumState(t1: startT1, t2: startT2)
-        twin = PendulumState(t1: startT1 + 1e-6, t2: startT2)
-        trail.removeAll(); twinTrail.removeAll(); bitmap.clear()
-        lastDate = nil
-        sound.restart(t1: startT1, t2: startT2)
+    init() {
+        twinColor = Color(hex: UserDefaults.standard.string(forKey: "pendulumTwinColor") ?? "8E8E93")
+        reset()
     }
 
-    func apply(_ preset: PendulumPreset) {
-        startT1 = preset.t1; startT2 = preset.t2
+    func reset() {
+        main = PendulumState(t1: startT1, t2: startT2, w1: startW1, w2: startW2)
+        twin = PendulumState(t1: startT1 + twinOffset, t2: startT2, w1: startW1, w2: startW2)
+        trail.removeAll(); twinTrail.removeAll(); bitmap.clear()
+        lastDate = nil
+        sound.restart(t1: startT1, t2: startT2, w1: startW1, w2: startW2)
+    }
+
+    func apply(_ p: PendulumPreset) {
+        startT1 = p.t1; startT2 = p.t2; startW1 = p.w1; startW2 = p.w2
+        if let v = p.speedExp { speedExp = v }
+        if let v = p.soundExp { soundExp = v }
+        if let v = p.trails { permanentTrails = v }
+        if let v = p.twin { showTwin = v }
+        if let v = p.twinExp { twinExp = v }
+        activePreset = p
         reset()
+        if let on = p.soundOn { soundOn = on }
         isPlaying = true
     }
 
     func launch(t1: Double, t2: Double) {
-        startT1 = t1; startT2 = t2
+        startT1 = t1; startT2 = t2; startW1 = 0; startW2 = 0
+        activePreset = nil
         reset()
         isPlaying = true
         launchTick += 1
@@ -117,7 +145,7 @@ final class PendulumModel: ObservableObject {
         // Record a handful of path points per frame, more at high speed so fast paths stay smooth.
         let points = min(steps, max(1, Int(speed.squareRoot() * 2)))
         let mainColor = UIColor(accent).cgColor
-        let twinColor = UIColor.systemGray.cgColor
+        let twinCG = UIColor(twinColor).cgColor
 
         for i in 0..<steps {
             PendulumPhysics.step(&main, dt: dt)
@@ -126,7 +154,7 @@ final class PendulumModel: ObservableObject {
             let m = Self.tip(main), t = Self.tip(twin)
             if permanentTrails {
                 bitmap.addMain(m, color: mainColor)
-                if showTwin { bitmap.addTwin(t, color: twinColor) }
+                if showTwin { bitmap.addTwin(t, color: twinCG) }
             } else {
                 trail.append(m)
                 if showTwin { twinTrail.append(t) }

@@ -5,6 +5,8 @@ struct PendulumSimulatorView: View {
 
     @EnvironmentObject private var model: PendulumModel
     @Environment(\.appAccent) private var accent
+    /// Fine-adjust step is 10^-fineExp (degrees for angles, rad/s for velocities).
+    @State private var fineExp = 0
 
     var body: some View {
         VStack(spacing: 12) {
@@ -40,11 +42,11 @@ struct PendulumSimulatorView: View {
                          in: CGRect(x: pivot.x - side / 2, y: pivot.y - side / 2, width: side, height: side))
             }
         } else {
-            if model.showTwin { drawTrail(&ctx, model.twinTrail, color: .secondary, pt: pt) }
+            if model.showTwin { drawTrail(&ctx, model.twinTrail, color: model.twinColor, pt: pt) }
             drawTrail(&ctx, model.trail, color: accent, pt: pt)
         }
 
-        if model.showTwin { drawPendulum(&ctx, model.twin, color: .secondary, pivot: pivot, scale: scale, alpha: 0.7) }
+        if model.showTwin { drawPendulum(&ctx, model.twin, color: model.twinColor, pivot: pivot, scale: scale, alpha: 0.75) }
         drawPendulum(&ctx, model.main, color: accent, pivot: pivot, scale: scale, alpha: 1)
     }
 
@@ -102,11 +104,12 @@ struct PendulumSimulatorView: View {
                     .buttonStyle(.glass)
 
                     Menu {
-                        Section("Regular (non-chaotic)") {
-                            ForEach(PendulumPreset.regular) { p in Button(p.name) { model.apply(p) } }
-                        }
-                        Section("Chaotic") {
-                            ForEach(PendulumPreset.chaotic) { p in Button(p.name) { model.apply(p) } }
+                        ForEach(PendulumPreset.groups) { group in
+                            Menu {
+                                ForEach(group.presets) { p in Button(p.name) { model.apply(p) } }
+                            } label: {
+                                Label(group.name, systemImage: group.icon)
+                            }
                         }
                     } label: {
                         Label("Presets", systemImage: "list.bullet")
@@ -116,8 +119,17 @@ struct PendulumSimulatorView: View {
                 }
             }
 
+            if let note = model.activeNote {
+                Text(note)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             ScrollView {
-                VStack(spacing: 10) {
+                VStack(spacing: 12) {
                     HStack {
                         Label("Speed", systemImage: "speedometer").frame(width: 92, alignment: .leading)
                         Slider(value: $model.speedExp, in: 0...10, step: 1)
@@ -126,8 +138,17 @@ struct PendulumSimulatorView: View {
                     }
 
                     Toggle(isOn: $model.permanentTrails) { Label("Keep trails forever", systemImage: "scribble") }
-                    Toggle(isOn: $model.showTwin) {
-                        Label("Chaos twin (0.000001 rad apart)", systemImage: "square.on.square")
+
+                    Toggle(isOn: $model.showTwin) { Label("Chaos twin", systemImage: "square.on.square") }
+                    if model.showTwin {
+                        HStack {
+                            Text("Offset").frame(width: 92, alignment: .leading)
+                            Slider(value: $model.twinExp, in: -12...(-1), step: 0.5)
+                                .accessibilityLabel("Twin offset exponent")
+                            Text(String(format: "%.0e rad", model.twinOffset))
+                                .monospacedDigit().frame(width: 84, alignment: .trailing)
+                        }
+                        ColorPicker("Twin color", selection: $model.twinColor, supportsOpacity: false)
                     }
 
                     Toggle(isOn: $model.soundOn) { Label("Listen (θ₁ left, θ₂ right)", systemImage: "headphones") }
@@ -141,27 +162,99 @@ struct PendulumSimulatorView: View {
                         }
                     }
 
-                    angleSlider("θ₁", value: $model.startT1)
-                    angleSlider("θ₂", value: $model.startT2)
+                    Divider()
+
+                    HStack {
+                        Text("Starting position").font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Menu {
+                            Picker("Fine step", selection: $fineExp) {
+                                ForEach(0...4, id: \.self) { Text(stepLabel($0)).tag($0) }
+                            }
+                        } label: {
+                            Label("Step \(stepLabel(fineExp))", systemImage: "slider.horizontal.3")
+                                .font(.subheadline)
+                        }
+                        .accessibilityLabel("Fine adjustment step")
+                    }
+
+                    ValueRow(name: "θ₁", unit: "°", value: degrees($model.startT1), range: -180...180,
+                             step: pow(10, -Double(fineExp)), digits: 6)
+                    ValueRow(name: "θ₂", unit: "°", value: degrees($model.startT2), range: -180...180,
+                             step: pow(10, -Double(fineExp)), digits: 6)
+
+                    DisclosureGroup("Initial velocity") {
+                        VStack(spacing: 12) {
+                            ValueRow(name: "ω₁", unit: "rad/s", value: $model.startW1, range: -20...20,
+                                     step: pow(10, -Double(fineExp)), digits: 6)
+                            ValueRow(name: "ω₂", unit: "rad/s", value: $model.startW2, range: -20...20,
+                                     step: pow(10, -Double(fineExp)), digits: 6)
+                        }
+                        .padding(.top, 8)
+                    }
                 }
                 .padding(14)
             }
             .glassEffect(.regular, in: .rect(cornerRadius: 20))
-            .frame(maxHeight: 190)
+            .frame(maxHeight: 230)
+            .onChange(of: model.startT1) { _, _ in model.reset() }
+            .onChange(of: model.startT2) { _, _ in model.reset() }
+            .onChange(of: model.startW1) { _, _ in model.reset() }
+            .onChange(of: model.startW2) { _, _ in model.reset() }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
     }
 
-    private func angleSlider(_ name: String, value: Binding<Double>) -> some View {
-        HStack {
-            Text(name).frame(width: 28, alignment: .leading)
-            Slider(value: value, in: -Double.pi...Double.pi)
-                .accessibilityLabel("Starting angle \(name)")
-            Text(String(format: "%.0f°", value.wrappedValue * 180 / .pi))
-                .monospacedDigit()
-                .frame(width: 52, alignment: .trailing)
+    private func stepLabel(_ exp: Int) -> String { exp == 0 ? "1" : "0." + String(repeating: "0", count: exp - 1) + "1" }
+
+    /// Radians in the model, degrees on screen.
+    private func degrees(_ radians: Binding<Double>) -> Binding<Double> {
+        Binding(get: { radians.wrappedValue * 180 / .pi },
+                set: { radians.wrappedValue = min(max($0, -180), 180) * .pi / 180 })
+    }
+}
+
+/// A slider with a typed value and −/+ nudge buttons, so values can be set precisely.
+private struct ValueRow: View {
+    let name: String
+    let unit: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    let digits: Int
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text(name).font(.body.weight(.semibold))
+                Spacer()
+                nudge("minus", -step)
+                TextField("0", value: clamped, format: .number.precision(.fractionLength(0...digits)))
+                    .keyboardType(.numbersAndPunctuation)
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .frame(width: 96)
+                    .accessibilityLabel("\(name) in \(unit)")
+                Text(unit).font(.footnote).foregroundStyle(.secondary).frame(width: 40, alignment: .leading)
+                nudge("plus", step)
+            }
+            Slider(value: clamped, in: range)
+                .accessibilityLabel(name)
         }
-        .onChange(of: value.wrappedValue) { _, _ in model.reset() }
+    }
+
+    private var clamped: Binding<Double> {
+        Binding(get: { value }, set: { value = min(max($0, range.lowerBound), range.upperBound) })
+    }
+
+    private func nudge(_ symbol: String, _ delta: Double) -> some View {
+        Button {
+            value = min(max(value + delta, range.lowerBound), range.upperBound)
+        } label: {
+            Image(systemName: symbol).frame(width: 44, height: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(delta < 0 ? "Decrease \(name)" : "Increase \(name)")
     }
 }
