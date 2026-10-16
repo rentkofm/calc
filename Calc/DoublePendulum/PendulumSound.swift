@@ -56,7 +56,7 @@ final class PendulumSound {
             }
             let mTarget: Float = self.masterOn ? 1 : 0
             let dt = self.timeScale / rate                       // simulated seconds per audio sample
-            let sub = max(1, Int((dt / 0.008).rounded(.up)))
+            let sub = max(1, Int((dt / min(0.008, PendulumPhysics.maxStep(for: state, limit: 0.008))).rounded(.up)))
             let h = dt / Double(sub)
             let silent = !self.masterOn && master < 0.0005
 

@@ -43,6 +43,16 @@ enum PendulumPhysics {
         s.w2 += dt / 6 * (k1.w2 + 2 * k2.w2 + 2 * k3.w2 + k4.w2)
     }
 
+    /// Wraps an angle into [-π, π). Starting angles are periodic, so the fractal tiles in both axes.
+    @inline(__always)
+    static func wrap(_ x: Double) -> Double { x - 2 * .pi * floor((x + .pi) / (2 * .pi)) }
+
+    /// Largest step that keeps the integrator accurate for the current angular speeds.
+    @inline(__always)
+    static func maxStep(for s: PendulumState, limit: Double = 0.004) -> Double {
+        min(limit, 0.04 / max(1, abs(s.w1), abs(s.w2)))
+    }
+
     /// Released from rest, the pendulum can only reach θ₂ = π if 2cosθ₁ + cosθ₂ ≤ 1
     /// (energy conservation), and θ₁ can never reach π. So if this holds it never flips.
     @inline(__always)

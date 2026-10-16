@@ -84,6 +84,27 @@ final class PendulumModel: ObservableObject {
 
     var twinOffset: Double { pow(10, twinExp) }
 
+    // Energy of the starting state (unit masses and rod lengths, so joules ≈ kg·m²/s²).
+    var startKinetic: Double { startW1 * startW1 + 0.5 * startW2 * startW2 + startW1 * startW2 * cos(startT1 - startT2) }
+    var startPotential: Double { -PendulumPhysics.gravity * (2 * cos(startT1) + cos(startT2)) }
+    var startEnergy: Double { startKinetic + startPotential }
+
+    /// Sets the total starting energy by scaling the starting velocities (kinetic energy can't go below zero).
+    func setStartEnergy(_ e: Double) {
+        let target = max(0, e - startPotential)
+        let cur = startKinetic
+        if cur > 1e-12 {
+            let k = (target / cur).squareRoot()
+            startW1 *= k; startW2 *= k
+        } else {
+            let base = 1.5 + cos(startT1 - startT2)        // kinetic energy of ω₁ = ω₂ = 1
+            let k = (target / base).squareRoot()
+            startW1 = k; startW2 = k
+        }
+    }
+
+    func stopSound() { if soundOn { soundOn = false } }
+
     /// The active preset's note, while the start still matches the preset.
     var activeNote: String? {
         guard let p = activePreset, p.t1 == startT1, p.t2 == startT2, p.w1 == startW1, p.w2 == startW2 else { return nil }
@@ -140,7 +161,9 @@ final class PendulumModel: ObservableObject {
         defer { lastDate = date }
         guard isPlaying, let last = lastDate else { return }
         let frame = min(date.timeIntervalSince(last), 1.0 / 20) * speed
-        let steps = max(1, Int((frame / 0.004).rounded(.up)))
+        // Spinning bobs need smaller steps to stay accurate.
+        let dtMax = min(PendulumPhysics.maxStep(for: main), showTwin ? PendulumPhysics.maxStep(for: twin) : 1)
+        let steps = min(20000, max(1, Int((frame / dtMax).rounded(.up))))
         let dt = frame / Double(steps)
         // Record a handful of path points per frame, more at high speed so fast paths stay smooth.
         let points = min(steps, max(1, Int(speed.squareRoot() * 2)))

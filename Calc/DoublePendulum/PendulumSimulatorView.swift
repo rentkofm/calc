@@ -183,6 +183,14 @@ struct PendulumSimulatorView: View {
                     ValueRow(name: "θ₂", unit: "°", value: degrees($model.startT2), range: -180...180,
                              step: pow(10, -Double(fineExp)), digits: 6)
 
+                    ValueRow(name: "Energy", unit: "J", value: Binding(get: { model.startEnergy },
+                                                                        set: { model.setStartEnergy($0) }),
+                             range: -30...2500, step: 10 * pow(10, -Double(fineExp)), digits: 3)
+                    Text(String(format: "Kinetic %.1f J + potential %.1f J. A flip becomes possible above −9.8 J; hanging at rest is −29.4 J.",
+                                model.startKinetic, model.startPotential))
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
                     DisclosureGroup("Initial velocity") {
                         VStack(spacing: 12) {
                             ValueRow(name: "ω₁", unit: "rad/s", value: $model.startW1, range: -20...20,

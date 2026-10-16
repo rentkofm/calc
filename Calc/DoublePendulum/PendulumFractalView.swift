@@ -5,31 +5,11 @@ private final class CancelToken: @unchecked Sendable {
     var cancelled = false
 }
 
-private struct PendulumPalette {
-    var lut: [(UInt8, UInt8, UInt8)]
-    var stable: (UInt8, UInt8, UInt8)
-
-    init(accent: Color, highlightStable: Bool) {
-        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        UIColor(accent).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
-        func rgb(_ hue: Double, _ sat: Double, _ bri: Double) -> (UInt8, UInt8, UInt8) {
-            var r: CGFloat = 0, g: CGFloat = 0, bl: CGFloat = 0, al: CGFloat = 0
-            UIColor(hue: CGFloat(hue.truncatingRemainder(dividingBy: 1)), saturation: CGFloat(sat),
-                    brightness: CGFloat(bri), alpha: 1).getRed(&r, green: &g, blue: &bl, alpha: &al)
-            return (UInt8(r * 255), UInt8(g * 255), UInt8(bl * 255))
-        }
-        let hue = Double(h)
-        lut = (0..<256).map { i in
-            let x = Double(i) / 255
-            return rgb(hue + 0.55 * x, 0.75, 1 - 0.35 * x)
-        }
-        stable = highlightStable ? rgb(hue, 0.08, 1) : rgb(hue, 0.6, 0.12)
-    }
-}
-
 /// The classic double-pendulum "flip time" fractal: each point is a pair of starting angles
 /// (θ₁ horizontally, θ₂ vertically), coloured by how long until a bob first flips over the top.
-/// The dark regions never flip: the islands of stability. Pan and pinch to explore.
+/// The dark regions never flip: the islands of stability.
+/// Angles are periodic, so the picture tiles forever; pan and pinch to explore. "Grow" and "Live"
+/// simulate every pixel forward in time and animate the result.
 struct PendulumFractalView: View {
     let active: Bool
 
@@ -45,10 +25,25 @@ struct PendulumFractalView: View {
         var minCell: CGFloat {
             switch self { case .fast: return 1.5; case .normal: return 0.75; case .fine: return 0.5 }
         }
+        /// Integration step: smaller is closer to the exact answer near chaotic boundaries.
+        var dt: Double {
+            switch self { case .fast: return 0.02; case .normal: return 0.01; case .fine: return 0.005 }
+        }
+        /// Pixel count for the animated modes.
+        var animatedPixels: Double {
+            switch self { case .fast: return 30_000; case .normal: return 60_000; case .fine: return 120_000 }
+        }
+    }
+
+    enum Display: String, CaseIterable, Identifiable {
+        case flipMap = "Flip map", grow = "Grow", live = "Live"
+        var id: String { rawValue }
+        var animated: Bool { self != .flipMap }
     }
 
     private struct Marker: Equatable { var t1: Double; var t2: Double }
     private struct RenderKey: Equatable {
+        var display: Display
         var duration: Double
         var quality: Quality
         var highlight: Bool
@@ -58,6 +53,7 @@ struct PendulumFractalView: View {
     }
 
     @State private var renderer = ProgressiveRenderer()
+    @State private var field = PendulumField()
     @State private var inertia = Inertia()
     @State private var center = Center(x: 0, y: 0)
     @State private var scale: CGFloat = 60
@@ -69,17 +65,21 @@ struct PendulumFractalView: View {
     @State private var scaleOrigin: CGFloat?
     @State private var marker: Marker?
 
+    @State private var display: Display = .flipMap
     @State private var duration = 10.0
     @State private var quality: Quality = .normal
     @State private var highlight = false
+    @State private var playing = true
+    @State private var timeSpeedExp = 0.0       // simulated seconds per real second = 2^exp
+    @State private var holdUntil: Date?
 
-    /// Scale at which the whole [-π, π] square fits.
+    /// Scale at which one [-π, π] tile fits.
     private var fitScale: CGFloat { max(1, min(size.width, size.height) / (2 * .pi) * 0.98) }
-    private var minScale: CGFloat { fitScale * 0.4 }
+    private var minScale: CGFloat { fitScale * 0.1 }
     private var maxScale: CGFloat { fitScale * 1e6 }
 
     private var renderKey: RenderKey {
-        RenderKey(duration: duration, quality: quality, highlight: highlight,
+        RenderKey(display: display, duration: duration, quality: quality, highlight: highlight,
                   accent: accent.description, scheme: scheme, size: size)
     }
 
@@ -104,13 +104,15 @@ struct PendulumFractalView: View {
     private func refresh() {
         guard active, size.width > 0 else { stale = true; return }
         stale = false
+        if display.animated { seedField(); return }
+
         token.cancelled = true
         let tok = CancelToken()
         token = tok
 
         let sz = size
         let cx = center.doubleX, cy = center.doubleY, s = Double(scale)
-        let limit = duration, minCell = quality.minCell
+        let limit = duration, minCell = quality.minCell, dt = quality.dt
         let palette = PendulumPalette(accent: accent, highlightStable: highlight)
         let hw = Double(sz.width) / 2, hh = Double(sz.height) / 2
 
@@ -119,13 +121,46 @@ struct PendulumFractalView: View {
             return Raster.image(size: sz, cell: c) { sx, sy in
                 // A superseded sharp render bails out fast; coarse in-motion frames always finish.
                 if !quick && tok.cancelled { return (0, 0, 0) }
-                let t1 = cx + (sx - hw) / s, t2 = cy - (sy - hh) / s
-                if abs(t1) > .pi || abs(t2) > .pi { return (0, 0, 0) }
-                guard let t = PendulumPhysics.flipTime(t1: t1, t2: t2, limit: limit) else { return palette.stable }
-                let x = min(1, log(1 + t) / log(1 + limit))
-                return palette.lut[Int(x * 255)]
+                // Angles are periodic, so the plane repeats forever.
+                let t1 = PendulumPhysics.wrap(cx + (sx - hw) / s), t2 = PendulumPhysics.wrap(cy - (sy - hh) / s)
+                guard let t = PendulumPhysics.flipTime(t1: t1, t2: t2, limit: limit, dt: dt) else { return palette.stable }
+                return palette.flipColor(t, limit: limit)
             }
         }
+    }
+
+    private func seedField() {
+        holdUntil = nil
+        let sz = size
+        let cell = Raster.cell(for: sz, displayScale: displayScale, maxPixels: quality.animatedPixels)
+        field.reset(viewport: Viewport(center: center, scale: Double(scale), size: sz), cell: cell,
+                    skipStable: display == .grow)
+        drawField()
+    }
+
+    private func drawField() {
+        field.updateImage(style: display == .live ? .live : .grow,
+                          palette: PendulumPalette(accent: accent, highlightStable: highlight), limit: duration)
+    }
+
+    /// Advances the animated modes by the time since the last frame.
+    private func tick(_ date: Date) {
+        guard display.animated, playing, active, size.width > 0 else { field.lastTick = nil; return }
+        let last = field.lastTick ?? date
+        field.lastTick = date
+        if let hold = holdUntil {
+            if date >= hold { seedField() }   // loop: start again
+            return
+        }
+        var dt = min(date.timeIntervalSince(last), 0.05) * pow(2, timeSpeedExp)
+        if display == .grow { dt = min(dt, duration - field.time) }
+        guard dt > 0 else {
+            if display == .grow { holdUntil = date.addingTimeInterval(2) }
+            return
+        }
+        field.advance(by: dt)
+        drawField()
+        if display == .grow && field.time >= duration - 1e-9 { holdUntil = date.addingTimeInterval(2) }
     }
 
     private func resetView() {
@@ -139,30 +174,44 @@ struct PendulumFractalView: View {
     private var canvas: some View {
         ZStack {
             Color.black
-            ViewportImage(image: renderer.image, viewport: renderer.viewport,
-                          center: center, scale: scale, size: size)
+            if display.animated {
+                ViewportImage(image: field.image, viewport: field.imageViewport,
+                              center: center, scale: scale, size: size)
+            } else {
+                ViewportImage(image: renderer.image, viewport: renderer.viewport,
+                              center: center, scale: scale, size: size)
+            }
             markerView
+            TimelineView(.animation(paused: !display.animated || !playing || !active)) { timeline in
+                Color.clear
+                    .onChange(of: timeline.date) { _, date in tick(date) }
+            }
+            .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 28, bottomTrailingRadius: 28, style: .continuous))
         .ignoresSafeArea(edges: .top)
         .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { size = $0 })
         .overlay(alignment: .bottomLeading) {
-            Text("\(formatNumber(Double(scale / fitScale), digits: 3))×")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .glassEffect(.regular, in: Capsule())
-                .padding(10)
-                .allowsHitTesting(false)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(formatNumber(Double(scale / fitScale), digits: 3))×")
+                if display.animated { Text("t = \(formatNumber(field.time, digits: 3)) s") }
+            }
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            .padding(10)
+            .allowsHitTesting(false)
         }
         .overlay(alignment: .bottomTrailing) {
             if let m = marker {
+                let t1 = PendulumPhysics.wrap(m.t1), t2 = PendulumPhysics.wrap(m.t2)
                 Button {
-                    model.launch(t1: m.t1, t2: m.t2)
+                    model.launch(t1: t1, t2: t2)
                 } label: {
-                    Label(String(format: "Simulate  θ₁ %.4g°  θ₂ %.4g°", m.t1 * 180 / .pi, m.t2 * 180 / .pi),
+                    Label(String(format: "Simulate  θ₁ %.4g°  θ₂ %.4g°", t1 * 180 / .pi, t2 * 180 / .pi),
                           systemImage: "play.fill")
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .frame(minHeight: 30)
@@ -197,9 +246,8 @@ struct PendulumFractalView: View {
         .simultaneousGesture(
             SpatialTapGesture(count: 1).onEnded { tap in
                 if inertia.running { inertia.stop(); return }
-                let t1 = center.doubleX + Double(tap.location.x - size.width / 2) / Double(scale)
-                let t2 = center.doubleY - Double(tap.location.y - size.height / 2) / Double(scale)
-                marker = (abs(t1) <= .pi && abs(t2) <= .pi) ? Marker(t1: t1, t2: t2) : nil
+                marker = Marker(t1: center.doubleX + Double(tap.location.x - size.width / 2) / Double(scale),
+                                t2: center.doubleY - Double(tap.location.y - size.height / 2) / Double(scale))
             }
         )
         .accessibilityLabel("Double pendulum fractal. Drag to pan, pinch to zoom, tap to pick a starting position.")
@@ -224,6 +272,11 @@ struct PendulumFractalView: View {
 
     private var controls: some View {
         VStack(spacing: 8) {
+            Picker("Display", selection: $display) {
+                ForEach(Display.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) {
                     Button { resetView() } label: {
@@ -243,25 +296,61 @@ struct PendulumFractalView: View {
                     .buttonStyle(.glass)
                     .accessibilityLabel("Quality: \(quality.rawValue)")
 
-                    Menu {
-                        Picker("Simulated time", selection: $duration) {
-                            ForEach([5.0, 10, 20, 40], id: \.self) { Text("\(Int($0)) s").tag($0) }
+                    if display != .live {
+                        Menu {
+                            Picker("Simulated time", selection: $duration) {
+                                ForEach([5.0, 10, 20, 40], id: \.self) { Text("\(Int($0)) s").tag($0) }
+                            }
+                        } label: {
+                            Label("\(Int(duration)) s", systemImage: "timer")
+                                .frame(maxWidth: .infinity, minHeight: 30)
                         }
-                    } label: {
-                        Label("\(Int(duration)) s", systemImage: "timer")
-                            .frame(maxWidth: .infinity, minHeight: 30)
+                        .buttonStyle(.glass)
+                        .accessibilityLabel("Simulated time: \(Int(duration)) seconds")
                     }
-                    .buttonStyle(.glass)
-                    .accessibilityLabel("Simulated time: \(Int(duration)) seconds")
                 }
             }
+
+            if display.animated {
+                GlassEffectContainer(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Button { playing.toggle() } label: {
+                            Label(playing ? "Pause" : "Play", systemImage: playing ? "pause.fill" : "play.fill")
+                                .frame(maxWidth: .infinity, minHeight: 30)
+                        }
+                        .buttonStyle(.glassProminent)
+
+                        Button { seedField() } label: {
+                            Label("Restart", systemImage: "arrow.counterclockwise")
+                                .frame(maxWidth: .infinity, minHeight: 30)
+                        }
+                        .buttonStyle(.glass)
+                    }
+                }
+                HStack {
+                    Label("Time", systemImage: "speedometer").frame(width: 80, alignment: .leading)
+                    Slider(value: $timeSpeedExp, in: -2...4, step: 1)
+                        .accessibilityLabel("Animation speed")
+                    Text("\(formatNumber(pow(2, timeSpeedExp), digits: 3))×")
+                        .monospacedDigit().frame(width: 56, alignment: .trailing)
+                }
+            }
+
             Toggle(isOn: $highlight) { Label("Highlight islands of stability", systemImage: "sparkles") }
                 .padding(.horizontal, 4)
-            Text("Color = time until a bob flips. Dark = never flips within the simulated time. Tap to pick a start.")
+            Text(hint)
                 .font(.footnote).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+    }
+
+    private var hint: String {
+        switch display {
+        case .flipMap: return "Color = time until a bob flips. Dark = never flips in the simulated time. The picture repeats forever in both angles. Tap to pick a start."
+        case .grow: return "Every pixel is a pendulum released at once: a pixel lights up when its pendulum flips. Panning or zooming restarts the clock."
+        case .live: return "Every pixel is a live pendulum, colored by its current angles (hue θ₁, brightness θ₂). Panning or zooming restarts the clock."
+        }
     }
 }

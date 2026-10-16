@@ -30,8 +30,21 @@ extension PendulumPreset {
     private static func deg(_ d: Double) -> Double { d * .pi / 180 }
     private static let root2 = 2.0.squareRoot()
 
+    /// Total energy (J, unit masses and lengths) of a starting state.
+    private static func energy(_ t1: Double, _ t2: Double, _ w1: Double, _ w2: Double) -> Double {
+        w1 * w1 + 0.5 * w2 * w2 + w1 * w2 * cos(t1 - t2) - 9.81 * (2 * cos(t1) + cos(t2))
+    }
+
+    /// A rotor-style preset whose note quotes its (computed) starting energy.
+    private static func highEnergy(_ name: String, _ a1: Double, _ a2: Double, _ w1: Double, _ w2: Double,
+                                   _ what: String) -> PendulumPreset {
+        let e = energy(deg(a1), deg(a2), w1, w2)
+        return PendulumPreset(name: name, t1: deg(a1), t2: deg(a2), w1: w1, w2: w2,
+                              note: String(format: "Starting energy %.0f J (a flip is possible above −9.8 J). %@", e, what))
+    }
+
     static let groups: [PendulumPresetGroup] = [
-        PendulumPresetGroup(name: "Regular swings", icon: "waveform.path", presets: [
+        PendulumPresetGroup(name: "Coherent", icon: "waveform.path", presets: [
             PendulumPreset(name: "Tiny nudge", t1: deg(8), t2: 0,
                            note: "Small angles: just the two normal modes added together."),
             PendulumPreset(name: "Small swing", t1: deg(10), t2: deg(10),
@@ -42,6 +55,43 @@ extension PendulumPreset {
                            note: "Pure fast mode: the bobs swing against each other, about 2.4× faster."),
             PendulumPreset(name: "Gentle lift", t1: deg(25), t2: 0,
                            note: "Bigger angles start to bend the modes, but the motion stays regular."),
+            PendulumPreset(name: "Mirror pair", t1: deg(30), t2: -deg(30),
+                           note: "Two bobs on opposite sides. Never flips; a twin 10⁻⁹ rad away stayed together for 100 s."),
+            PendulumPreset(name: "Reach forward", t1: deg(20), t2: deg(90),
+                           note: "Outer arm starts out horizontal. Regular: a twin 10⁻⁹ rad away stayed together for 100 s."),
+            PendulumPreset(name: "Wide opposing swing", t1: deg(40), t2: -deg(90),
+                           note: "Large, lopsided swings. Never flips; a twin 10⁻⁹ rad away stayed together for 100 s."),
+            PendulumPreset(name: "Long reach", t1: deg(10), t2: -deg(110),
+                           note: "Outer arm nearly horizontal on the far side. Never flips; regular for 100 s."),
+            PendulumPreset(name: "Even split", t1: deg(30), t2: deg(60),
+                           note: "Mid-size swings, both bobs on the same side. Never flips; regular for 100 s."),
+            PendulumPreset(name: "Great island rosette", t1: deg(85.3), t2: deg(68.1),
+                           note: "A regular orbit painting itself at 64×. Trails stay forever.",
+                           speedExp: 6, trails: true, twin: false),
+            PendulumPreset(name: "Second island rosette", t1: deg(49.5), t2: deg(98.45),
+                           note: "Quasi-periodic weave at 32×.",
+                           speedExp: 5, trails: true, twin: false),
+            PendulumPreset(name: "Lissajous weave", t1: deg(30), t2: 0,
+                           note: "Two modes beating against each other at 32×.",
+                           speedExp: 5, trails: true, twin: false),
+            PendulumPreset(name: "Locked rosette", t1: deg(70), t2: -deg(30),
+                           note: "Energy-locked orbit drawn at 32×.",
+                           speedExp: 5, trails: true, twin: false),
+            PendulumPreset(name: "Gentle rotor", t1: 0, t2: 0, w1: 10, w2: 6,
+                           note: "Both bobs spin over the top, regular and coherent, drawn at 16×.",
+                           speedExp: 4, trails: true, twin: false),
+        ]),
+        PendulumPresetGroup(name: "High energy", icon: "bolt.fill", presets: [
+            highEnergy("Propeller", 0, 0, 20, 20, "Both bobs spin together like a rigid propeller."),
+            highEnergy("Epicycle", 0, 0, 20, 12, "The outer arm turns slower than the inner: a looping epicycle."),
+            highEnergy("Slow arm", 0, 0, 30, 6, "A very fast inner arm drags a slow outer arm."),
+            highEnergy("Whirling tip", 0, 0, 0, 40, "Only the outer bob starts spinning; the inner arm jiggles."),
+            highEnergy("Counter-rotors", 0, 0, 6, -40, "The bobs spin in opposite directions."),
+            highEnergy("Fast inner arm", 0, 0, 40, 0, "Only the inner arm starts spinning; the outer arm is dragged along."),
+            highEnergy("Outward spiral", 0, 0, 12, 30, "The outer arm spins faster than the inner one."),
+            highEnergy("Heavy rotor", 0, 0, 30, 30, "Two bobs spinning together at 30 rad/s."),
+            highEnergy("Double speed", 0, 0, 20, 40, "The outer arm spins at twice the inner arm's speed."),
+            highEnergy("Whirlwind", 0, 0, 40, 12, "The most energetic of these: speeds above 45 rad/s."),
         ]),
         PendulumPresetGroup(name: "Energy-locked (can't flip)", icon: "lock.fill", presets: [
             PendulumPreset(name: "Locked wide swing", t1: deg(60), t2: deg(80),
@@ -62,23 +112,6 @@ extension PendulumPreset {
                            note: "The mirror image of the center orbit."),
             PendulumPreset(name: "Second island", t1: deg(49.5), t2: deg(98.45),
                            note: "A smaller island, surrounded by chaos. Never flips (checked for 1000 s)."),
-        ]),
-        PendulumPresetGroup(name: "Coherent at high speed", icon: "hare.fill", presets: [
-            PendulumPreset(name: "Great island rosette", t1: deg(85.3), t2: deg(68.1),
-                           note: "A regular orbit painting itself at 64×. Trails stay forever.",
-                           speedExp: 6, trails: true, twin: false),
-            PendulumPreset(name: "Second island rosette", t1: deg(49.5), t2: deg(98.45),
-                           note: "Quasi-periodic weave at 32×.",
-                           speedExp: 5, trails: true, twin: false),
-            PendulumPreset(name: "Lissajous weave", t1: deg(30), t2: 0,
-                           note: "Two modes beating against each other at 32×.",
-                           speedExp: 5, trails: true, twin: false),
-            PendulumPreset(name: "Locked rosette", t1: deg(70), t2: -deg(30),
-                           note: "Energy-locked orbit drawn at 32×.",
-                           speedExp: 5, trails: true, twin: false),
-            PendulumPreset(name: "Rotor spiral", t1: 0, t2: 0, w1: 10, w2: 6,
-                           note: "Both bobs spin over the top, regular and coherent, drawn at 16×.",
-                           speedExp: 4, trails: true, twin: false),
         ]),
         PendulumPresetGroup(name: "Neat sounds", icon: "headphones", presets: [
             PendulumPreset(name: "Pure bass tone", t1: deg(6), t2: deg(6) * root2,
@@ -118,6 +151,9 @@ extension PendulumPreset {
                            twin: true, twinExp: -6),
             PendulumPreset(name: "Folded", t1: deg(90), t2: -deg(90),
                            note: "Flips at 1.5 s; the twin splits at ~4 s.",
+                           twin: true, twinExp: -6),
+            PendulumPreset(name: "Loose spinner", t1: 0, t2: 0, w1: 12, w2: -20,
+                           note: "Looks like a rotor, but at only 75 J it is chaotic: the twin splits at ~7 s. Compare with High energy.",
                            twin: true, twinExp: -6),
             PendulumPreset(name: "Hard snap", t1: deg(130), t2: -deg(90),
                            note: "Flips at 1.8 s; the twin splits at ~4 s.",
