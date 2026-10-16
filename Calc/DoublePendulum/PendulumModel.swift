@@ -50,6 +50,33 @@ final class PendulumTrailBitmap {
     }
 }
 
+/// An additional pendulum running alongside the main one, with its own start, path and colour.
+final class PendulumInstance: Identifiable {
+    let id = UUID()
+    let t1: Double, t2: Double, w1: Double, w2: Double
+    let color: Color
+    var state: PendulumState
+    var trail: [CGPoint] = []
+    let bitmap = PendulumTrailBitmap()
+
+    init(t1: Double, t2: Double, w1: Double, w2: Double, color: Color) {
+        self.t1 = t1; self.t2 = t2; self.w1 = w1; self.w2 = w2; self.color = color
+        state = PendulumState(t1: t1, t2: t2, w1: w1, w2: w2)
+    }
+
+    func reset() {
+        state = PendulumState(t1: t1, t2: t2, w1: w1, w2: w2)
+        trail.removeAll(); bitmap.clear()
+    }
+}
+
+/// A saved starting condition.
+struct PendulumBookmark: Codable, Identifiable {
+    var id = UUID()
+    var name: String
+    var t1: Double, t2: Double, w1: Double, w2: Double
+}
+
 /// Shared state: the live pendulum(s), the sound engine and the starting angles.
 final class PendulumModel: ObservableObject {
 
@@ -60,7 +87,15 @@ final class PendulumModel: ObservableObject {
         didSet { if !showTwin { twinTrail.removeAll(); bitmap.dropTwin() } else { twin = main; twin.t1 += twinOffset } }
     }
     @Published var permanentTrails = false {
-        didSet { trail.removeAll(); twinTrail.removeAll(); bitmap.clear() }
+        didSet {
+            trail.removeAll(); twinTrail.removeAll(); bitmap.clear()
+            for e in extras { e.trail.removeAll(); e.bitmap.clear() }
+        }
+    }
+    /// Extra pendulums running alongside the main one.
+    @Published private(set) var extras: [PendulumInstance] = []
+    @Published private(set) var bookmarks: [PendulumBookmark] = [] {
+        didSet { saveBookmarks() }
     }
     /// Playback speed is 2^speedExp (1× … 1024×).
     @Published var speedExp = 0.0
@@ -76,13 +111,17 @@ final class PendulumModel: ObservableObject {
     @Published var startW1 = 0.0
     @Published var startW2 = 0.0
     /// The chaos twin starts 10^twinExp radians away in θ₁.
-    @Published var twinExp = -6.0 { didSet { reset() } }
+    @Published var twinExp = -6.0 { didSet { resetMain() } }
     @Published var twinColor: Color {
         didSet { UserDefaults.standard.set(twinColor.hex, forKey: "pendulumTwinColor") }
     }
     @Published private(set) var activePreset: PendulumPreset?
 
     var twinOffset: Double { pow(10, twinExp) }
+
+    /// An angle of 0 for both bobs means there is nothing to generate, so no main pendulum is drawn.
+    var mainVisible: Bool { !(startT1 == 0 && startT2 == 0) }
+    private static let extraPalette = ["FF9F0A", "30D158", "FF375F", "BF5AF2", "64D2FF"]
 
     // Energy of the starting state (unit masses and rod lengths, so joules ≈ kg·m²/s²).
     var startKinetic: Double { startW1 * startW1 + 0.5 * startW2 * startW2 + startW1 * startW2 * cos(startT1 - startT2) }
@@ -125,10 +164,53 @@ final class PendulumModel: ObservableObject {
 
     init() {
         twinColor = Color(hex: UserDefaults.standard.string(forKey: "pendulumTwinColor") ?? "8E8E93")
-        reset()
+        if let data = UserDefaults.standard.data(forKey: "pendulumBookmarks"),
+           let saved = try? JSONDecoder().decode([PendulumBookmark].self, from: data) {
+            bookmarks = saved
+        }
+        resetMain()
     }
 
+    private func saveBookmarks() {
+        if let data = try? JSONEncoder().encode(bookmarks) { UserDefaults.standard.set(data, forKey: "pendulumBookmarks") }
+    }
+
+    /// Restarts every pendulum from its starting state.
     func reset() {
+        resetMain()
+        for e in extras { e.reset() }
+    }
+
+    // MARK: Extra pendulums and bookmarks
+
+    /// Adds another pendulum; ignored when both angles are 0.
+    func addExtra(t1: Double, t2: Double, w1: Double, w2: Double) {
+        guard !(t1 == 0 && t2 == 0) else { return }
+        let hex = Self.extraPalette[extras.count % Self.extraPalette.count]
+        extras.append(PendulumInstance(t1: t1, t2: t2, w1: w1, w2: w2, color: Color(hex: hex)))
+        isPlaying = true
+    }
+
+    func addCurrentAsExtra() { addExtra(t1: startT1, t2: startT2, w1: startW1, w2: startW2) }
+    func removeExtra(_ e: PendulumInstance) { extras.removeAll { $0.id == e.id } }
+    func clearExtras() { extras.removeAll() }
+
+    func addBookmark() {
+        let d = 180 / Double.pi
+        let name = String(format: "θ₁ %.4g°, θ₂ %.4g°", startT1 * d, startT2 * d)
+        bookmarks.append(PendulumBookmark(name: name, t1: startT1, t2: startT2, w1: startW1, w2: startW2))
+    }
+
+    func removeBookmark(_ b: PendulumBookmark) { bookmarks.removeAll { $0.id == b.id } }
+
+    func load(_ b: PendulumBookmark) {
+        startT1 = b.t1; startT2 = b.t2; startW1 = b.w1; startW2 = b.w2
+        activePreset = nil
+        resetMain()
+        isPlaying = true
+    }
+
+    func resetMain() {
         main = PendulumState(t1: startT1, t2: startT2, w1: startW1, w2: startW2)
         twin = PendulumState(t1: startT1 + twinOffset, t2: startT2, w1: startW1, w2: startW2)
         trail.removeAll(); twinTrail.removeAll(); bitmap.clear()
@@ -144,7 +226,7 @@ final class PendulumModel: ObservableObject {
         if let v = p.twin { showTwin = v }
         if let v = p.twinExp { twinExp = v }
         activePreset = p
-        reset()
+        resetMain()
         if let on = p.soundOn { soundOn = on }
         isPlaying = true
     }
@@ -152,7 +234,7 @@ final class PendulumModel: ObservableObject {
     func launch(t1: Double, t2: Double) {
         startT1 = t1; startT2 = t2; startW1 = 0; startW2 = 0
         activePreset = nil
-        reset()
+        resetMain()
         isPlaying = true
         launchTick += 1
     }
@@ -162,7 +244,13 @@ final class PendulumModel: ObservableObject {
         guard isPlaying, let last = lastDate else { return }
         let frame = min(date.timeIntervalSince(last), 1.0 / 20) * speed
         // Spinning bobs need smaller steps to stay accurate.
-        let dtMax = min(PendulumPhysics.maxStep(for: main), showTwin ? PendulumPhysics.maxStep(for: twin) : 1)
+        let showMain = mainVisible
+        var dtMax = 0.004
+        if showMain {
+            dtMax = min(dtMax, PendulumPhysics.maxStep(for: main))
+            if showTwin { dtMax = min(dtMax, PendulumPhysics.maxStep(for: twin)) }
+        }
+        for e in extras { dtMax = min(dtMax, PendulumPhysics.maxStep(for: e.state)) }
         let steps = min(20000, max(1, Int((frame / dtMax).rounded(.up))))
         let dt = frame / Double(steps)
         // Record a handful of path points per frame, more at high speed so fast paths stay smooth.
@@ -171,18 +259,28 @@ final class PendulumModel: ObservableObject {
         let twinCG = UIColor(twinColor).cgColor
 
         for i in 0..<steps {
-            PendulumPhysics.step(&main, dt: dt)
-            if showTwin { PendulumPhysics.step(&twin, dt: dt) }
+            if showMain {
+                PendulumPhysics.step(&main, dt: dt)
+                if showTwin { PendulumPhysics.step(&twin, dt: dt) }
+            }
+            for e in extras { PendulumPhysics.step(&e.state, dt: dt) }
             guard (i + 1) * points / steps > i * points / steps else { continue }
-            let m = Self.tip(main), t = Self.tip(twin)
-            if permanentTrails {
-                bitmap.addMain(m, color: mainColor)
-                if showTwin { bitmap.addTwin(t, color: twinCG) }
-            } else {
-                trail.append(m)
-                if showTwin { twinTrail.append(t) }
+            if showMain {
+                let m = Self.tip(main), t = Self.tip(twin)
+                if permanentTrails {
+                    bitmap.addMain(m, color: mainColor)
+                    if showTwin { bitmap.addTwin(t, color: twinCG) }
+                } else {
+                    trail.append(m)
+                    if showTwin { twinTrail.append(t) }
+                }
+            }
+            for e in extras {
+                let p = Self.tip(e.state)
+                if permanentTrails { e.bitmap.addMain(p, color: UIColor(e.color).cgColor) } else { e.trail.append(p) }
             }
         }
+        for e in extras where e.trail.count > Self.maxTrail { e.trail.removeFirst(e.trail.count - Self.maxTrail) }
         if trail.count > Self.maxTrail { trail.removeFirst(trail.count - Self.maxTrail) }
         if twinTrail.count > Self.maxTrail { twinTrail.removeFirst(twinTrail.count - Self.maxTrail) }
     }

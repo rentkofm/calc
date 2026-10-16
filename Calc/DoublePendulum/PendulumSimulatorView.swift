@@ -38,19 +38,27 @@ struct PendulumSimulatorView: View {
         let pivot = CGPoint(x: size.width / 2, y: size.height / 2)
         func pt(_ p: CGPoint) -> CGPoint { CGPoint(x: pivot.x + p.x * scale, y: pivot.y + p.y * scale) }
 
+        let showMain = model.mainVisible
         if model.permanentTrails {
-            if let img = model.bitmap.image {
-                let side = 4 * scale
-                ctx.draw(Image(decorative: img, scale: 1),
-                         in: CGRect(x: pivot.x - side / 2, y: pivot.y - side / 2, width: side, height: side))
+            let side = 4 * scale
+            let rect = CGRect(x: pivot.x - side / 2, y: pivot.y - side / 2, width: side, height: side)
+            if showMain, let img = model.bitmap.image { ctx.draw(Image(decorative: img, scale: 1), in: rect) }
+            for e in model.extras {
+                if let img = e.bitmap.image { ctx.draw(Image(decorative: img, scale: 1), in: rect) }
             }
         } else {
-            if model.showTwin { drawTrail(&ctx, model.twinTrail, color: model.twinColor, pt: pt) }
-            drawTrail(&ctx, model.trail, color: accent, pt: pt)
+            if showMain {
+                if model.showTwin { drawTrail(&ctx, model.twinTrail, color: model.twinColor, pt: pt) }
+                drawTrail(&ctx, model.trail, color: accent, pt: pt)
+            }
+            for e in model.extras { drawTrail(&ctx, e.trail, color: e.color, pt: pt) }
         }
 
-        if model.showTwin { drawPendulum(&ctx, model.twin, color: model.twinColor, pivot: pivot, scale: scale, alpha: 0.75) }
-        drawPendulum(&ctx, model.main, color: accent, pivot: pivot, scale: scale, alpha: 1)
+        for e in model.extras { drawPendulum(&ctx, e.state, color: e.color, pivot: pivot, scale: scale, alpha: 1) }
+        if showMain {
+            if model.showTwin { drawPendulum(&ctx, model.twin, color: model.twinColor, pivot: pivot, scale: scale, alpha: 0.75) }
+            drawPendulum(&ctx, model.main, color: accent, pivot: pivot, scale: scale, alpha: 1)
+        }
     }
 
     private func drawTrail(_ ctx: inout GraphicsContext, _ trail: [CGPoint], color: Color, pt: (CGPoint) -> CGPoint) {
@@ -202,6 +210,71 @@ struct PendulumSimulatorView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
+                    if !model.mainVisible {
+                        Text("Both angles are 0, so no pendulum is generated.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    HStack(spacing: 10) {
+                        Button { model.addCurrentAsExtra() } label: {
+                            Label("Add pendulum", systemImage: "plus.circle").frame(maxWidth: .infinity, minHeight: 32)
+                        }
+                        .buttonStyle(.glass)
+                        .disabled(!model.mainVisible)
+                        Button { model.addBookmark() } label: {
+                            Label("Bookmark", systemImage: "bookmark").frame(maxWidth: .infinity, minHeight: 32)
+                        }
+                        .buttonStyle(.glass)
+                    }
+
+                    if !model.extras.isEmpty {
+                        VStack(spacing: 6) {
+                            ForEach(model.extras) { e in
+                                HStack {
+                                    Circle().fill(e.color).frame(width: 12, height: 12)
+                                    Text(String(format: "θ₁ %.4g°, θ₂ %.4g°", e.t1 * 180 / .pi, e.t2 * 180 / .pi))
+                                        .font(.footnote).monospacedDigit()
+                                    Spacer()
+                                    Button { model.removeExtra(e) } label: {
+                                        Image(systemName: "xmark.circle.fill").frame(width: 44, height: 32)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Remove pendulum")
+                                }
+                            }
+                        }
+                    }
+
+                    if !model.bookmarks.isEmpty {
+                        DisclosureGroup("Bookmarks (\(model.bookmarks.count))") {
+                            VStack(spacing: 6) {
+                                ForEach(model.bookmarks) { b in
+                                    HStack(spacing: 4) {
+                                        Button { model.load(b) } label: {
+                                            Text(b.name).font(.footnote).monospacedDigit()
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel("Load bookmark \(b.name)")
+                                        Button { model.addExtra(t1: b.t1, t2: b.t2, w1: b.w1, w2: b.w2) } label: {
+                                            Image(systemName: "plus.circle").frame(width: 40, height: 32)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .disabled(b.t1 == 0 && b.t2 == 0)
+                                        .accessibilityLabel("Add bookmark as another pendulum")
+                                        Button { model.removeBookmark(b) } label: {
+                                            Image(systemName: "trash").frame(width: 40, height: 32)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel("Delete bookmark")
+                                    }
+                                }
+                            }
+                            .padding(.top, 8)
+                        }
+                    }
+
                     DisclosureGroup("Initial velocity") {
                         VStack(spacing: 12) {
                             ValueRow(name: "ω₁", unit: "rad/s", value: $model.startW1, range: -20...20,
@@ -216,10 +289,10 @@ struct PendulumSimulatorView: View {
             }
             .glassEffect(.regular, in: .rect(cornerRadius: 20))
             .frame(maxHeight: 230)
-            .onChange(of: model.startT1) { _, _ in model.reset() }
-            .onChange(of: model.startT2) { _, _ in model.reset() }
-            .onChange(of: model.startW1) { _, _ in model.reset() }
-            .onChange(of: model.startW2) { _, _ in model.reset() }
+            .onChange(of: model.startT1) { _, _ in model.resetMain() }
+            .onChange(of: model.startT2) { _, _ in model.resetMain() }
+            .onChange(of: model.startW1) { _, _ in model.resetMain() }
+            .onChange(of: model.startW2) { _, _ in model.resetMain() }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
@@ -249,11 +322,7 @@ private struct ValueRow: View {
                 Text(name).font(.body.weight(.semibold))
                 Spacer()
                 nudge("minus", -step)
-                TextField("0", value: clamped, format: .number.precision(.fractionLength(0...digits)))
-                    .keyboardType(.numbersAndPunctuation)
-                    .multilineTextAlignment(.trailing)
-                    .monospacedDigit()
-                    .frame(width: 96)
+                NumberEntry(value: clamped, digits: digits)
                     .accessibilityLabel("\(name) in \(unit)")
                 Text(unit).font(.footnote).foregroundStyle(.secondary).frame(width: 40, alignment: .leading)
                 nudge("plus", step)
@@ -275,5 +344,37 @@ private struct ValueRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(delta < 0 ? "Decrease \(name)" : "Increase \(name)")
+    }
+}
+
+/// Text entry that accepts decimals (. or ,), negatives and 0 while typing, and commits each valid number as it changes.
+private struct NumberEntry: View {
+    @Binding var value: Double
+    let digits: Int
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("0", text: $text)
+            .keyboardType(.numbersAndPunctuation)
+            .multilineTextAlignment(.trailing)
+            .monospacedDigit()
+            .frame(width: 96)
+            .focused($focused)
+            .onAppear { text = format(value) }
+            .onChange(of: text) { _, new in
+                if let v = Double(new.replacingOccurrences(of: ",", with: ".")), v != value { value = v }
+            }
+            .onChange(of: value) { _, new in if !focused { text = format(new) } }
+            .onChange(of: focused) { _, f in if !f { text = format(value) } }
+    }
+
+    private func format(_ v: Double) -> String {
+        var s = String(format: "%.\(digits)f", v)
+        if s.contains(".") {
+            while s.hasSuffix("0") { s.removeLast() }
+            if s.hasSuffix(".") { s.removeLast() }
+        }
+        return s == "-0" ? "0" : s
     }
 }
