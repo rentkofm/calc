@@ -139,6 +139,7 @@ struct LifeView: View {
 
     var body: some View {
         ExToolPage(info: ["tool.life"]) {
+            Color.clear.overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 if let img = engine.image {
                     Image(decorative: img, scale: 1)
@@ -153,7 +154,8 @@ struct LifeView: View {
                 }
                 .allowsHitTesting(false)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { size = $0 })
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -258,6 +260,7 @@ struct ElementaryAutomatonView: View {
 
     var body: some View {
         ExToolPage(info: ["tool.elementary", "tool.rule30", "tool.rule110"]) {
+            Color.clear.overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 if let img = engine.image {
                     Image(decorative: img, scale: 1)
@@ -274,7 +277,8 @@ struct ElementaryAutomatonView: View {
                 }
                 .allowsHitTesting(false)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { size = $0 })
         } controls: {
             ExTransport(playing: $playing, onReset: { rebuild() }, onStep: {
@@ -376,6 +380,7 @@ struct LangtonView: View {
 
     var body: some View {
         ExToolPage(info: ["tool.langton"]) {
+            Color.clear.overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 if let img = engine.image {
                     Image(decorative: img, scale: 1)
@@ -395,7 +400,8 @@ struct LangtonView: View {
                 }
                 .allowsHitTesting(false)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { size = $0 })
         } controls: {
             ExTransport(playing: $playing, onReset: { rebuild() }, onStep: {
