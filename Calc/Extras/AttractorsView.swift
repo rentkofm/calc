@@ -74,7 +74,8 @@ struct AttractorsView: View {
         var lo = path[0], hi = path[0]
         for p in path { lo = pointwiseMin(lo, p); hi = pointwiseMax(hi, p) }
         let centre = (lo + hi) / 2
-        let r = max(1e-6, ((hi - lo) / 2).max())
+        let r = ((hi - lo) / 2).max()
+        guard r.isFinite, r > 1e-6, centre.x.isFinite else { return (.zero, 1) }
         return (centre, r)
     }
 
@@ -139,8 +140,9 @@ struct AttractorsView: View {
 
     private func draw(_ ctx: inout GraphicsContext, _ size: CGSize, _ date: Date) {
         guard !path.isEmpty else { return }
-        let elapsed = date.timeIntervalSince(startDate)
-        let revealed = min(path.count, Int(elapsed * 5000) + 2)
+        // The timeline date can precede `startDate` (set on appear / Replay), so clamp both to stay in range.
+        let elapsed = max(0, date.timeIntervalSince(startDate))
+        let revealed = max(2, min(path.count, Int(min(elapsed * 5000, 1e7)) + 2))
         let spin = autoRotate ? yaw + elapsed * 0.25 : yaw
         let (cy, sy, cp, sp) = (cos(spin), sin(spin), cos(pitch), sin(pitch))
         let (centre, radius) = framing
@@ -177,7 +179,7 @@ struct AttractorsView: View {
             strokeChunks(twin, palette: { _ in Color.secondary.opacity(0.55) }, width: 1.2)
         }
         strokeChunks(path, palette: { f in ExColor.shifted(accent, by: 0.5 * f) }, width: 1.6)
-        if revealed < path.count {
+        if revealed < path.count, revealed >= 1 {
             let h = project(path[revealed - 1])
             ctx.fill(Path(ellipseIn: CGRect(x: h.x - 4, y: h.y - 4, width: 8, height: 8)), with: .color(accent))
         }
