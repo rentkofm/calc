@@ -85,7 +85,10 @@ struct PendulumFractalView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            canvas
+            ZStack(alignment: .topTrailing) {
+                canvas
+                InfoButton(keys: infoKeys).padding(10)
+            }
             controls
         }
         .onChange(of: renderKey) { _, _ in
@@ -344,6 +347,14 @@ struct PendulumFractalView: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+    }
+
+    private var infoKeys: [String] {
+        var keys = ["pendulum.fractal", "pendulum.flip", "pendulum.islands", "pendulum.tiling"]
+        if display == .grow { keys.append("pendulum.grow") }
+        if display == .live { keys.append("pendulum.live") }
+        keys += ["pendulum.quality", "pendulum.chaos", "pendulum.locked"]
+        return keys
     }
 
     private var hint: String {

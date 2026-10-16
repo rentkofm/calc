@@ -10,17 +10,23 @@ struct PendulumSimulatorView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            TimelineView(.animation(paused: !model.isPlaying || !active)) { timeline in
-                Canvas { ctx, size in
-                    model.advance(to: timeline.date, accent: accent)
-                    draw(&ctx, size: size)
+            ZStack(alignment: .topTrailing) {
+                TimelineView(.animation(paused: !model.isPlaying || !active)) { timeline in
+                    Canvas { ctx, size in
+                        model.advance(to: timeline.date, accent: accent)
+                        draw(&ctx, size: size)
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .glassEffect(.regular, in: UnevenRoundedRectangle(bottomLeadingRadius: 28, bottomTrailingRadius: 28,
+                                                                  style: .continuous))
+                .ignoresSafeArea(edges: .top)
+                .accessibilityLabel("Double pendulum simulation")
+                InfoButton(keys: ["pendulum.double", "pendulum.equations", "pendulum.energy", "pendulum.chaos",
+                                  "pendulum.twin", "pendulum.lyapunov", "pendulum.modes", "pendulum.sound",
+                                  "pendulum.rk4", "pendulum.reliability", "pendulum.presets"])
+                    .padding(10)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .glassEffect(.regular, in: UnevenRoundedRectangle(bottomLeadingRadius: 28, bottomTrailingRadius: 28,
-                                                              style: .continuous))
-            .ignoresSafeArea(edges: .top)
-            .accessibilityLabel("Double pendulum simulation")
 
             controls
         }

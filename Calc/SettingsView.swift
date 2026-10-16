@@ -9,6 +9,7 @@ struct SettingsView: View {
     @AppStorage("haptics") private var haptics = true
     @AppStorage("showScientific") private var showScientific = true
     @AppStorage("graphGrid") private var graphGrid = true
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -102,6 +103,8 @@ struct SettingsView: View {
             .scrollContentBackground(.hidden)
             .background { AppBackground() }
             .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
     }
 }

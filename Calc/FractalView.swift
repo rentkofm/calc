@@ -353,6 +353,14 @@ struct FractalView: View {
         }
     }
 
+    /// Reference entries shown by the ⓘ button: this fractal, its family and, for raster fractals, the colouring.
+    private var infoKeys: [String] {
+        var keys = ["fractal.\(kind.rawValue)", "fractalcat.\(kind.category.rawValue)"]
+        if kind.style == .raster { keys.append("fractalcolor.\(coloring.rawValue)") }
+        keys += ["fc.selfsimilarity", "fc.fractaldim"]
+        return keys
+    }
+
     private var badge: String {
         if kind.style == .ray3D { return "\(formatNumber(kind.defaultDistance / dist, digits: 3))×" }
         let zoom = "\(formatNumber(Double(scale / kind.defaultScale), digits: 3))×"
@@ -393,6 +401,9 @@ struct FractalView: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if !isFullscreen { zoomButton.padding(10) }
+            }
+            .overlay(alignment: .topLeading) {
+                if !isFullscreen { InfoButton(keys: infoKeys).padding(10) }
             }
             .clipShape(.rect(cornerRadius: isFullscreen ? 0 : 28))
             .glassEffect(isFullscreen ? .identity : .regular, in: .rect(cornerRadius: isFullscreen ? 0 : 28))

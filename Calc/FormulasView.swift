@@ -295,3 +295,8 @@ struct FormulasView: View {
         }
     }
 }
+
+/// Every formula as plain tuples, so the Reference tab can search them.
+func allFormulaEntries() -> [(group: String, name: String, formula: String, note: String)] {
+    formulaGroups.flatMap { g in g.items.map { (group: g.title, name: $0.name, formula: $0.formula, note: $0.note) } }
+}

@@ -54,6 +54,7 @@ struct CalculatorView: View {
     @State private var second = false
     @State private var showHistory = false
     @State private var showAdvanced = false
+    @State private var showSettings = false
 
     @Environment(\.appAccent) private var accent
     @AppStorage("angle") private var angle: AngleMode = .degrees
@@ -78,6 +79,7 @@ struct CalculatorView: View {
         .onChange(of: precision) { sync() }
         .sheet(isPresented: $showHistory) { historySheet }
         .sheet(isPresented: $showAdvanced) { AdvancedMathSheet(model: model) }
+        .sheet(isPresented: $showSettings) { SettingsView() }
     }
 
     private func sync() {
@@ -96,6 +98,7 @@ struct CalculatorView: View {
                 pill(systemImage: "function", active: showScientific) {
                     withAnimation(.smooth) { showScientific.toggle() }
                 }
+                pill(systemImage: "gearshape") { showSettings = true }
             }
         }
         .padding(.top, 8)

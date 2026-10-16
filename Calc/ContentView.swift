@@ -6,7 +6,7 @@ extension EnvironmentValues {
 }
 
 struct ContentView: View {
-    enum AppTab: Hashable { case calculator, graph, extras, settings }
+    enum AppTab: Hashable { case calculator, graph, extras, reference }
     @State private var selectedTab: AppTab = .calculator
     @AppStorage("appearance") private var appearance: AppearanceMode = .system
     @AppStorage("accent") private var accent: AccentChoice = .orange
@@ -17,7 +17,7 @@ struct ContentView: View {
             Tab("Calculator", systemImage: "plus.forwardslash.minus", value: AppTab.calculator) { CalculatorView() }
             Tab("Graph", systemImage: "chart.xyaxis.line", value: AppTab.graph) { GraphHubView() }
             Tab("Extras", systemImage: "square.grid.2x2", value: AppTab.extras) { ExtrasHubView() }
-            Tab("Settings", systemImage: "gearshape", value: AppTab.settings) { SettingsView() }
+            Tab("Reference", systemImage: "books.vertical", value: AppTab.reference) { ReferenceView() }
         }
         .environment(\.extrasVisible, selectedTab == .extras)
         .tint(accent.resolved(customHex: customHex))
