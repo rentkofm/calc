@@ -24,6 +24,7 @@ struct Graph3DView: View {
     @State private var size = CGSize(width: 320, height: 320)
     @State private var zoomAxis: Axis3?
     @State private var originRanges: (x: Double, y: Double, z: Double)?
+    @State private var pinchDistance: CGFloat?
     private enum Axis3 { case x, y, z, all }
     @State private var inertia = Inertia()
     @State private var rainbow = true
@@ -62,6 +63,7 @@ struct Graph3DView: View {
             .gesture(
                 DragGesture()
                     .onChanged { v in
+                        if pinchDistance != nil { return }   // two fingers are zooming, not rotating
                         if dragOrigin == nil { inertia.stop(); dragOrigin = (yaw, elevation) }
                         let o = dragOrigin ?? (yaw, elevation)
                         yaw = o.yaw + Double(v.translation.width) * 0.01
@@ -76,22 +78,28 @@ struct Graph3DView: View {
                     }
             )
             .simultaneousGesture(
-                MagnifyGesture()
-                    .onChanged { v in
-                        if originRanges == nil {
-                            inertia.stop()
-                            originRanges = (xr, yr, zStretch)
-                            zoomAxis = axis(at: v.startLocation)
-                        }
-                        guard let o = originRanges else { return }
-                        let m = max(Double(v.magnification), 1e-3)
-                        // Pinching out (m > 1) zooms in, i.e. shrinks the domain.
-                        if zoomAxis == .x || zoomAxis == .all { xr = min(max(o.x / m, 1e-6), 1e12) }
-                        if zoomAxis == .y || zoomAxis == .all { yr = min(max(o.y / m, 1e-6), 1e12) }
-                        if zoomAxis == .z { zStretch = min(max(o.z * m, 1e-3), 1e3) }
-                    }
-                    .onEnded { _ in originRanges = nil; zoomAxis = nil }
+                SpatialEventGesture()
+                    .onChanged { events in pinchChanged(events) }
+                    .onEnded { _ in originRanges = nil; pinchDistance = nil; zoomAxis = nil }
             )
+    }
+
+    /// Two-finger zoom: both fingers on one axis line rescale just that axis, anywhere else both x and y.
+    private func pinchChanged(_ events: SpatialEventCollection) {
+        guard let (a, b) = pinchTouches(events) else { originRanges = nil; pinchDistance = nil; zoomAxis = nil; return }
+        let d = max(hypot(a.x - b.x, a.y - b.y), 1)
+        guard let d0 = pinchDistance, let o = originRanges else {
+            inertia.stop()
+            pinchDistance = d
+            originRanges = (xr, yr, zStretch)
+            zoomAxis = axis(a, b)
+            return
+        }
+        let m = d / d0
+        // Pinching out (m > 1) zooms in, i.e. shrinks the domain.
+        if zoomAxis == .x || zoomAxis == .all { xr = min(max(o.x / Double(m), 1e-6), 1e12) }
+        if zoomAxis == .y || zoomAxis == .all { yr = min(max(o.y / Double(m), 1e-6), 1e12) }
+        if zoomAxis == .z { zStretch = min(max(o.z * Double(m), 1e-3), 1e3) }
     }
 
     private struct Camera {
@@ -110,19 +118,22 @@ struct Graph3DView: View {
                cosY: cos(yaw), sinY: sin(yaw), cosE: cos(elevation), sinE: sin(elevation))
     }
 
-    /// The axis whose drawn line passes under the pinch, or `.all` when it starts away from every axis.
-    private func axis(at p: CGPoint) -> Axis3 {
+    /// The axis whose drawn line both fingers are on, or `.all` when they aren't on one.
+    private func axis(_ p: CGPoint, _ q: CGPoint) -> Axis3 {
         let cam = camera(size)
         let ends: [(Axis3, (Double, Double, Double))] = [(.x, (1, 0, 0)), (.y, (0, 1, 0)), (.z, (0, 0, 0.9))]
+        func distance(_ p: CGPoint, _ a: CGPoint, _ b: CGPoint) -> CGFloat {
+            let ab = CGPoint(x: b.x - a.x, y: b.y - a.y)
+            let len2 = ab.x * ab.x + ab.y * ab.y
+            guard len2 > 1 else { return .infinity }
+            let t = min(max(((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / len2, 0), 1)
+            return hypot(p.x - (a.x + t * ab.x), p.y - (a.y + t * ab.y))
+        }
         var best: (axis: Axis3, d: CGFloat)?
         for (ax, e) in ends {
             let a = cam.project(-e.0, -e.1, -e.2).point, b = cam.project(e.0, e.1, e.2).point
-            let ab = CGPoint(x: b.x - a.x, y: b.y - a.y)
-            let len2 = ab.x * ab.x + ab.y * ab.y
-            guard len2 > 1 else { continue }
-            let t = min(max(((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / len2, 0), 1)
-            let d = hypot(p.x - (a.x + t * ab.x), p.y - (a.y + t * ab.y))
-            if d < 36, d < (best?.d ?? .infinity) { best = (ax, d) }
+            let d = max(distance(p, a, b), distance(q, a, b))
+            if d < 48, d < (best?.d ?? .infinity) { best = (ax, d) }
         }
         return best?.axis ?? .all
     }

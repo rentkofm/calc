@@ -43,6 +43,12 @@ struct GraphHubView: View {
     }
 }
 
+/// The two fingers of a pinch, taken from a `SpatialEventGesture` (nil unless exactly two are down).
+func pinchTouches(_ events: SpatialEventCollection) -> (CGPoint, CGPoint)? {
+    let pts = events.filter { $0.phase == .active }.map { $0.location }
+    return pts.count == 2 ? (pts[0], pts[1]) : nil
+}
+
 extension View {
     func visible(_ on: Bool) -> some View {
         opacity(on ? 1 : 0)
@@ -74,14 +80,14 @@ struct GraphPage: ViewModifier {
                     Button {
                         withAnimation(.smooth) { fullscreen.wrappedValue = false }
                     } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .bold))
-                            .frame(width: 40, height: 40)
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 38, height: 38)
                     }
                     .buttonStyle(.plain)
                     .glassEffect(.regular.interactive(), in: Circle())
                     .accessibilityLabel("Exit full screen")
-                    .padding(12)
+                    .padding(10)
                 }
             }
     }

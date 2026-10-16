@@ -55,7 +55,7 @@ struct GraphView: View {
     @State private var scale: CGFloat = 40
     /// Vertical pixels per unit. Equal to `scale` until the user pinches along one axis.
     @State private var scaleY: CGFloat = 40
-    @State private var scaleYOrigin: CGFloat?
+    @State private var pinchStart: (d: CGFloat, sx: CGFloat, sy: CGFloat)?
     @State private var zoomAxis: ZoomAxis?
     @State private var canvasSize = CGSize(width: 320, height: 320)
     @State private var dragOrigin: CGPoint?
@@ -191,20 +191,9 @@ struct GraphView: View {
                     }
             )
             .simultaneousGesture(
-                MagnifyGesture()
-                    .onChanged { v in
-                        if scaleOrigin == nil {
-                            stopInertia()
-                            scaleOrigin = scale
-                            scaleYOrigin = scaleY
-                            zoomAxis = axis(at: v.startLocation)
-                        }
-                        let m = v.magnification
-                        let (sx, sy) = (scaleOrigin ?? scale, scaleYOrigin ?? scaleY)
-                        if zoomAxis != .y { scale = min(max(sx * m, 1e-100), 1e100) }
-                        if zoomAxis != .x { scaleY = min(max(sy * m, 1e-100), 1e100) }
-                    }
-                    .onEnded { _ in scaleOrigin = nil; scaleYOrigin = nil; zoomAxis = nil }
+                SpatialEventGesture()
+                    .onChanged { events in pinchChanged(events) }
+                    .onEnded { _ in endPinch() }
             )
             .onTapGesture { location in handleTap(at: location) }
             .overlay { selectionOverlay }
@@ -216,14 +205,31 @@ struct GraphView: View {
             }
     }
 
-    /// A pinch that starts on an axis line stretches only that axis; anywhere else zooms both.
-    private func axis(at p: CGPoint) -> ZoomAxis {
+    /// Two-finger zoom. Both fingers on the line x = 0 stretch the graph vertically, both on y = 0 stretch it
+    /// horizontally, and anywhere else it zooms both ways.
+    private func pinchChanged(_ events: SpatialEventCollection) {
+        guard let (a, b) = pinchTouches(events) else { endPinch(); return }
+        let d = max(hypot(a.x - b.x, a.y - b.y), 1)
+        guard let start = pinchStart else {
+            stopInertia()
+            pinchStart = (d, scale, scaleY)
+            zoomAxis = axis(a, b)
+            return
+        }
+        let m = d / start.d
+        if zoomAxis != .y { scale = min(max(start.sx * m, 1e-100), 1e100) }
+        if zoomAxis != .x { scaleY = min(max(start.sy * m, 1e-100), 1e100) }
+    }
+
+    private func endPinch() { pinchStart = nil; zoomAxis = nil }
+
+    private func axis(_ a: CGPoint, _ b: CGPoint) -> ZoomAxis {
         let o = toScreen(0, 0, canvasSize)
-        let reach: CGFloat = 36
-        let nearX = abs(p.y - o.y) < reach   // on the horizontal (x) axis
-        let nearY = abs(p.x - o.x) < reach   // on the vertical (y) axis
-        if nearX && !nearY { return .x }
-        if nearY && !nearX { return .y }
+        let reach: CGFloat = 48
+        let onVertical = abs(a.x - o.x) < reach && abs(b.x - o.x) < reach     // the line x = 0
+        let onHorizontal = abs(a.y - o.y) < reach && abs(b.y - o.y) < reach   // the line y = 0
+        if onVertical && !onHorizontal { return .y }
+        if onHorizontal && !onVertical { return .x }
         return .both
     }
 
