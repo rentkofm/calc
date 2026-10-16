@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Unit conversion plus fractals, behind a switcher.
+/// Unit conversion, fractals, the double pendulum, formulas and stats, behind a switcher.
 struct ExtrasHubView: View {
     enum Mode: String, CaseIterable, Identifiable {
-        case convert = "Convert", fractals = "Fractals", formulas = "Formulas", stats = "Stats"
+        case convert = "Convert", fractals = "Fractals", pendulum = "Pendulum", formulas = "Formulas", stats = "Stats"
         var id: String { rawValue }
     }
 
@@ -14,6 +14,7 @@ struct ExtrasHubView: View {
             ZStack {
                 ConverterView().visible(mode == .convert)
                 FractalView().visible(mode == .fractals)
+                PendulumHubView(active: mode == .pendulum).visible(mode == .pendulum)
                 FormulasView().visible(mode == .formulas)
                 StatsView().visible(mode == .stats)
             }
@@ -25,7 +26,7 @@ struct ExtrasHubView: View {
                         ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    .frame(maxWidth: 380)
+                    .frame(maxWidth: 420)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
