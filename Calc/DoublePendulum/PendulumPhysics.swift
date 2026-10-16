@@ -14,12 +14,15 @@ enum PendulumPhysics {
 
     @inline(__always)
     static func derivative(_ s: PendulumState) -> PendulumState {
-        let d = s.t1 - s.t2
-        let sd = sin(d), cd = cos(d)
-        let den = 3 - cos(2 * d)
-        let a1 = (-gravity * (3 * sin(s.t1) + sin(s.t1 - 2 * s.t2))
-                  - 2 * sd * (s.w2 * s.w2 + s.w1 * s.w1 * cd)) / den
-        let a2 = (2 * sd * (2 * s.w1 * s.w1 + 2 * gravity * cos(s.t1) + s.w2 * s.w2 * cd)) / den
+        // Four trig calls; every other term is built from these.
+        let s1 = sin(s.t1), c1 = cos(s.t1), s2 = sin(s.t2), c2 = cos(s.t2)
+        let sd = s1 * c2 - c1 * s2                 // sin(θ1 − θ2)
+        let cd = c1 * c2 + s1 * s2                 // cos(θ1 − θ2)
+        let den = 4 - 2 * cd * cd                  // 3 − cos(2(θ1 − θ2))
+        let sin1m2 = s1 * (c2 * c2 - s2 * s2) - c1 * (2 * s2 * c2)   // sin(θ1 − 2θ2)
+        let w1s = s.w1 * s.w1, w2s = s.w2 * s.w2
+        let a1 = (-gravity * (3 * s1 + sin1m2) - 2 * sd * (w2s + w1s * cd)) / den
+        let a2 = (2 * sd * (2 * w1s + 2 * gravity * c1 + w2s * cd)) / den
         return PendulumState(t1: s.w1, t2: s.w2, w1: a1, w2: a2)
     }
 
@@ -40,8 +43,14 @@ enum PendulumPhysics {
         s.w2 += dt / 6 * (k1.w2 + 2 * k2.w2 + 2 * k3.w2 + k4.w2)
     }
 
+    /// Released from rest, the pendulum can only reach θ₂ = π if 2cosθ₁ + cosθ₂ ≤ 1
+    /// (energy conservation), and θ₁ can never reach π. So if this holds it never flips.
+    @inline(__always)
+    static func provablyStable(t1: Double, t2: Double) -> Bool { 2 * cos(t1) + cos(t2) > 1 }
+
     /// Time until either bob first flips over the top (|θ| > π), or nil if it never does within `limit`.
-    static func flipTime(t1: Double, t2: Double, limit: Double, dt: Double = 0.01) -> Double? {
+    static func flipTime(t1: Double, t2: Double, limit: Double, dt: Double = 0.02) -> Double? {
+        if provablyStable(t1: t1, t2: t2) { return nil }
         var s = PendulumState(t1: t1, t2: t2)
         var t = 0.0
         while t < limit {

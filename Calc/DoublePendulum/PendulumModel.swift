@@ -52,15 +52,10 @@ final class PendulumTrailBitmap {
 
 /// Shared state: the live pendulum(s), the sound engine and the starting angles.
 final class PendulumModel: ObservableObject {
-    enum Mode: String, CaseIterable, Identifiable {
-        case simulate = "Simulate", fractal = "Fractal"
-        var id: String { rawValue }
-    }
 
-    @Published var mode: Mode = .simulate
+    /// Bumped when the fractal asks to simulate a point, so the Extras tab can switch to the simulator.
+    @Published var launchTick = 0
     @Published var isPlaying = true
-    /// True while the Pendulum mode of the Extras tab is actually on screen.
-    @Published var hubActive = false
     @Published var showTwin = true {
         didSet { if !showTwin { twinTrail.removeAll(); bitmap.dropTwin() } else { twin = main; twin.t1 += 1e-6 } }
     }
@@ -110,7 +105,7 @@ final class PendulumModel: ObservableObject {
         startT1 = t1; startT2 = t2
         reset()
         isPlaying = true
-        mode = .simulate
+        launchTick += 1
     }
 
     func advance(to date: Date, accent: Color) {

@@ -1,25 +1,29 @@
 import SwiftUI
 
 struct PendulumSimulatorView: View {
+    let active: Bool
+
     @EnvironmentObject private var model: PendulumModel
     @Environment(\.appAccent) private var accent
 
     var body: some View {
         VStack(spacing: 12) {
-            TimelineView(.animation(paused: !model.isPlaying || model.mode != .simulate || !model.hubActive)) { timeline in
+            TimelineView(.animation(paused: !model.isPlaying || !active)) { timeline in
                 Canvas { ctx, size in
                     model.advance(to: timeline.date, accent: accent)
                     draw(&ctx, size: size)
                 }
             }
-            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .glassEffect(.regular, in: UnevenRoundedRectangle(bottomLeadingRadius: 28, bottomTrailingRadius: 28,
+                                                              style: .continuous))
+            .ignoresSafeArea(edges: .top)
             .accessibilityLabel("Double pendulum simulation")
-            .padding(.horizontal, 16)
 
             controls
         }
         .onChange(of: model.isPlaying) { _, playing in if !playing { model.pause() } }
-        .onChange(of: model.mode) { _, _ in model.pause() }
+        .onChange(of: active) { _, _ in model.pause() }
     }
 
     // MARK: Drawing
@@ -143,7 +147,7 @@ struct PendulumSimulatorView: View {
                 .padding(14)
             }
             .glassEffect(.regular, in: .rect(cornerRadius: 20))
-            .frame(maxHeight: 250)
+            .frame(maxHeight: 190)
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
