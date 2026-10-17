@@ -60,7 +60,45 @@ struct PendulumSimulatorView: View {
         if showMain {
             if model.showTwin { drawPendulum(&ctx, model.twin, color: model.twinColor, pivot: pivot, scale: scale, alpha: 0.75) }
             drawPendulum(&ctx, model.main, color: accent, pivot: pivot, scale: scale, alpha: 1)
+            drawAngleGraph(&ctx, size: size)
         }
+    }
+
+    /// Inset graph over time: top angle θ₁ on X, bottom angle θ₂ on Y, both wrapped to −180°…180°.
+    private func drawAngleGraph(_ ctx: inout GraphicsContext, size: CGSize) {
+        let side = min(size.width, size.height) * 0.3
+        let box = CGRect(x: size.width - side - 12, y: size.height - side - 12, width: side, height: side)
+        ctx.fill(Path(roundedRect: box, cornerRadius: 10), with: .color(.black.opacity(0.28)))
+        let plot = box.insetBy(dx: 8, dy: 8)
+        func pt(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: plot.minX + (p.x / .pi + 1) / 2 * plot.width, y: plot.maxY - (p.y / .pi + 1) / 2 * plot.height)
+        }
+        var axes = Path()
+        axes.move(to: CGPoint(x: plot.midX, y: plot.minY)); axes.addLine(to: CGPoint(x: plot.midX, y: plot.maxY))
+        axes.move(to: CGPoint(x: plot.minX, y: plot.midY)); axes.addLine(to: CGPoint(x: plot.maxX, y: plot.midY))
+        ctx.stroke(axes, with: .color(.secondary.opacity(0.5)), lineWidth: 0.5)
+        ctx.draw(Text("θ₁").font(.caption2).foregroundStyle(.secondary), at: CGPoint(x: plot.maxX - 8, y: plot.midY - 8))
+        ctx.draw(Text("θ₂").font(.caption2).foregroundStyle(.secondary), at: CGPoint(x: plot.midX + 10, y: plot.minY + 6))
+
+        let trail = model.angleTrail
+        guard let last = trail.last else { return }
+        let chunk = 25
+        var i = 0
+        while i < trail.count - 1 {
+            let end = min(i + chunk, trail.count - 1)
+            var path = Path()
+            var pen = false
+            for j in i...end {
+                // Lift the pen when an angle wraps from +180° to −180° instead of drawing across the graph.
+                if j > i, abs(trail[j].x - trail[j - 1].x) > .pi || abs(trail[j].y - trail[j - 1].y) > .pi { pen = false }
+                if pen { path.addLine(to: pt(trail[j])) } else { path.move(to: pt(trail[j])); pen = true }
+            }
+            let fade = Double(end) / Double(trail.count)
+            ctx.stroke(path, with: .color(accent.opacity(fade * fade)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+            i = end
+        }
+        let d = pt(last)
+        ctx.fill(Path(ellipseIn: CGRect(x: d.x - 3.5, y: d.y - 3.5, width: 7, height: 7)), with: .color(accent))
     }
 
     private func drawTrail(_ ctx: inout GraphicsContext, _ trail: [CGPoint], color: Color, pt: (CGPoint) -> CGPoint) {

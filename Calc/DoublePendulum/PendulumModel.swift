@@ -158,10 +158,13 @@ final class PendulumModel: ObservableObject {
     private(set) var twin = PendulumState(t1: 2.0 + 1e-6, t2: 2.5)
     private(set) var trail: [CGPoint] = []   // bob 2 positions in rod units
     private(set) var twinTrail: [CGPoint] = []
+    /// (θ₁, θ₂) history of the main pendulum, each wrapped to −π…π, for the angle graph.
+    private(set) var angleTrail: [CGPoint] = []
     let bitmap = PendulumTrailBitmap()
     private var lastDate: Date?
     private let sound = PendulumSound()
     static let maxTrail = 800
+    static let maxAngleTrail = 2500
 
     init() {
         twinColor = Color(hex: UserDefaults.standard.string(forKey: "pendulumTwinColor") ?? "8E8E93")
@@ -214,7 +217,7 @@ final class PendulumModel: ObservableObject {
     func resetMain() {
         main = PendulumState(t1: startT1, t2: startT2, w1: startW1, w2: startW2)
         twin = PendulumState(t1: startT1 + twinOffset, t2: startT2, w1: startW1, w2: startW2)
-        trail.removeAll(); twinTrail.removeAll(); bitmap.clear()
+        trail.removeAll(); twinTrail.removeAll(); angleTrail.removeAll(); bitmap.clear()
         lastDate = nil
         sound.restart(t1: startT1, t2: startT2, w1: startW1, w2: startW2)
     }
@@ -268,6 +271,7 @@ final class PendulumModel: ObservableObject {
             guard (i + 1) * points / steps > i * points / steps else { continue }
             if showMain {
                 let m = Self.tip(main), t = Self.tip(twin)
+                angleTrail.append(CGPoint(x: Self.wrap(main.t1), y: Self.wrap(main.t2)))
                 if permanentTrails {
                     bitmap.addMain(m, color: mainColor)
                     if showTwin { bitmap.addTwin(t, color: twinCG) }
@@ -282,11 +286,14 @@ final class PendulumModel: ObservableObject {
             }
         }
         for e in extras where e.trail.count > Self.maxTrail { e.trail.removeFirst(e.trail.count - Self.maxTrail) }
+        if angleTrail.count > Self.maxAngleTrail { angleTrail.removeFirst(angleTrail.count - Self.maxAngleTrail) }
         if trail.count > Self.maxTrail { trail.removeFirst(trail.count - Self.maxTrail) }
         if twinTrail.count > Self.maxTrail { twinTrail.removeFirst(twinTrail.count - Self.maxTrail) }
     }
 
     func pause() { lastDate = nil }
+
+    static func wrap(_ a: Double) -> Double { atan2(sin(a), cos(a)) }
 
     static func tip(_ s: PendulumState) -> CGPoint {
         CGPoint(x: sin(s.t1) + sin(s.t2), y: cos(s.t1) + cos(s.t2))
