@@ -363,6 +363,8 @@ private struct NumberEntry: View {
             .focused($focused)
             .onAppear { text = format(value) }
             .onChange(of: text) { _, new in
+                // Only commit what the user types; programmatic changes (presets, bookmarks) must stay exact.
+                guard focused else { return }
                 if let v = Double(new.replacingOccurrences(of: ",", with: ".")), v != value { value = v }
             }
             .onChange(of: value) { _, new in if !focused { text = format(new) } }
