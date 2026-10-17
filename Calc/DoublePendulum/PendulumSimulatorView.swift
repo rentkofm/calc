@@ -7,6 +7,8 @@ struct PendulumSimulatorView: View {
     @Environment(\.appAccent) private var accent
     /// Fine-adjust step is 10^-fineExp (degrees for angles, rad/s for velocities).
     @State private var fineExp = 0
+    /// Angle fields in radians instead of degrees (video and textbook values are usually radians).
+    @AppStorage("pendulumAngleRadians") private var useRadians = false
     @Environment(\.openExtras) private var openExtras
 
     var body: some View {
@@ -186,6 +188,13 @@ struct PendulumSimulatorView: View {
                     HStack {
                         Text("Starting position").font(.subheadline.weight(.semibold))
                         Spacer()
+                        Picker("Angle unit", selection: $useRadians) {
+                            Text("°").tag(false)
+                            Text("rad").tag(true)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 96)
+                        .accessibilityLabel("Angle unit")
                         Menu {
                             Picker("Fine step", selection: $fineExp) {
                                 ForEach(0...4, id: \.self) { Text(stepLabel($0)).tag($0) }
@@ -197,9 +206,11 @@ struct PendulumSimulatorView: View {
                         .accessibilityLabel("Fine adjustment step")
                     }
 
-                    ValueRow(name: "θ₁", unit: "°", value: degrees($model.startT1), range: -180...180,
+                    ValueRow(name: "θ₁", unit: useRadians ? "rad" : "°", value: angle($model.startT1),
+                             range: useRadians ? -Double.pi...Double.pi : -180...180,
                              step: pow(10, -Double(fineExp)), digits: 6)
-                    ValueRow(name: "θ₂", unit: "°", value: degrees($model.startT2), range: -180...180,
+                    ValueRow(name: "θ₂", unit: useRadians ? "rad" : "°", value: angle($model.startT2),
+                             range: useRadians ? -Double.pi...Double.pi : -180...180,
                              step: pow(10, -Double(fineExp)), digits: 6)
 
                     ValueRow(name: "Energy", unit: "J", value: Binding(get: { model.startEnergy },
@@ -281,6 +292,14 @@ struct PendulumSimulatorView: View {
                                      step: pow(10, -Double(fineExp)), digits: 6)
                             ValueRow(name: "ω₂", unit: "rad/s", value: $model.startW2, range: -20...20,
                                      step: pow(10, -Double(fineExp)), digits: 6)
+                            Button {
+                                model.startW1 = 0; model.startW2 = 0
+                            } label: {
+                                Label("Release from rest (ω = 0)", systemImage: "hand.raised")
+                                    .frame(maxWidth: .infinity, minHeight: 32)
+                            }
+                            .buttonStyle(.glass)
+                            .disabled(model.startW1 == 0 && model.startW2 == 0)
                         }
                         .padding(.top, 8)
                     }
@@ -300,10 +319,14 @@ struct PendulumSimulatorView: View {
 
     private func stepLabel(_ exp: Int) -> String { exp == 0 ? "1" : "0." + String(repeating: "0", count: exp - 1) + "1" }
 
-    /// Radians in the model, degrees on screen.
-    private func degrees(_ radians: Binding<Double>) -> Binding<Double> {
-        Binding(get: { radians.wrappedValue * 180 / .pi },
-                set: { radians.wrappedValue = min(max($0, -180), 180) * .pi / 180 })
+    /// Radians in the model; degrees or radians on screen.
+    private func angle(_ radians: Binding<Double>) -> Binding<Double> {
+        if useRadians {
+            return Binding(get: { radians.wrappedValue },
+                           set: { radians.wrappedValue = min(max($0, -.pi), .pi) })
+        }
+        return Binding(get: { radians.wrappedValue * 180 / .pi },
+                       set: { radians.wrappedValue = min(max($0, -180), 180) * .pi / 180 })
     }
 }
 
