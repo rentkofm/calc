@@ -119,8 +119,9 @@ final class PendulumModel: ObservableObject {
 
     var twinOffset: Double { pow(10, twinExp) }
 
-    /// An angle of 0 for both bobs means there is nothing to generate, so no main pendulum is drawn.
-    var mainVisible: Bool { !(startT1 == 0 && startT2 == 0) }
+    /// Hanging straight down at rest (both angles and both velocities 0) means there is nothing to generate,
+    /// so no main pendulum is drawn.
+    var mainVisible: Bool { !(startT1 == 0 && startT2 == 0 && startW1 == 0 && startW2 == 0) }
     private static let extraPalette = ["FF9F0A", "30D158", "FF375F", "BF5AF2", "64D2FF"]
 
     // Energy of the starting state (unit masses and rod lengths, so joules ≈ kg·m²/s²).
@@ -183,9 +184,9 @@ final class PendulumModel: ObservableObject {
 
     // MARK: Extra pendulums and bookmarks
 
-    /// Adds another pendulum; ignored when both angles are 0.
+    /// Adds another pendulum; ignored when it would just hang at rest.
     func addExtra(t1: Double, t2: Double, w1: Double, w2: Double) {
-        guard !(t1 == 0 && t2 == 0) else { return }
+        guard !(t1 == 0 && t2 == 0 && w1 == 0 && w2 == 0) else { return }
         let hex = Self.extraPalette[extras.count % Self.extraPalette.count]
         extras.append(PendulumInstance(t1: t1, t2: t2, w1: w1, w2: w2, color: Color(hex: hex)))
         isPlaying = true
@@ -231,8 +232,8 @@ final class PendulumModel: ObservableObject {
         isPlaying = true
     }
 
-    func launch(t1: Double, t2: Double) {
-        startT1 = t1; startT2 = t2; startW1 = 0; startW2 = 0
+    func launch(t1: Double, t2: Double, w1: Double = 0, w2: Double = 0) {
+        startT1 = t1; startT2 = t2; startW1 = w1; startW2 = w2
         activePreset = nil
         resetMain()
         isPlaying = true

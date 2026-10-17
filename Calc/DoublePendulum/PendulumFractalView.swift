@@ -5,6 +5,9 @@ private final class CancelToken: @unchecked Sendable {
     var cancelled = false
 }
 
+/// Two views of the same fractal. "Angle space" is the classic one below. "Momentum space" fixes the starting
+/// angles (the simulator's) and varies the starting canonical momenta (p₁ horizontally, p₂ vertically).
+///
 /// The classic double-pendulum "flip time" fractal: each point is a pair of starting angles
 /// (θ₁ horizontally, θ₂ vertically), coloured by how long until a bob first flips over the top.
 /// The dark regions never flip: the islands of stability.
@@ -36,6 +39,14 @@ struct PendulumFractalView: View {
         }
     }
 
+    enum Space: String, CaseIterable, Identifiable {
+        case angle = "Angle space", momentum = "Momentum space"
+        var id: String { rawValue }
+    }
+
+    /// Half-width of the momentum plane that fits the screen at 1×.
+    private static let momentumHalfRange = 15.0
+
     enum Display: String, CaseIterable, Identifiable {
         case flipMap = "Flip map", grow = "Grow", live = "Live"
         var id: String { rawValue }
@@ -44,6 +55,8 @@ struct PendulumFractalView: View {
 
     private struct Marker: Equatable { var t1: Double; var t2: Double }
     private struct RenderKey: Equatable {
+        var space: Space
+        var angles: [Double]
         var display: Display
         var duration: Double
         var quality: Quality
@@ -66,6 +79,7 @@ struct PendulumFractalView: View {
     @State private var scaleOrigin: CGFloat?
     @State private var marker: Marker?
 
+    @State private var space: Space = .angle
     @State private var display: Display = .flipMap
     @State private var duration = 10.0
     @State private var quality: Quality = .normal
@@ -75,12 +89,21 @@ struct PendulumFractalView: View {
     @State private var holdUntil: Date?
 
     /// Scale at which one [-π, π] tile fits.
-    private var fitScale: CGFloat { max(1, min(size.width, size.height) / (2 * .pi) * 0.98) }
+    private var fitScale: CGFloat {
+        let span = space == .angle ? 2 * Double.pi : 2 * Self.momentumHalfRange
+        return max(1, min(size.width, size.height) / CGFloat(span) * 0.98)
+    }
+
+    /// Starting angles for the momentum plane (the simulator's), or nil in angle space.
+    private var fixedAngles: (t1: Double, t2: Double)? {
+        space == .momentum ? (model.startT1, model.startT2) : nil
+    }
     private var minScale: CGFloat { fitScale * 0.1 }
     private var maxScale: CGFloat { fitScale * 1e6 }
 
     private var renderKey: RenderKey {
-        RenderKey(display: display, duration: duration, quality: quality, highlight: highlight,
+        RenderKey(space: space, angles: space == .momentum ? [model.startT1, model.startT2] : [],
+                  display: display, duration: duration, quality: quality, highlight: highlight,
                   accent: accent.description, scheme: scheme, size: size)
     }
 
@@ -91,6 +114,11 @@ struct PendulumFractalView: View {
         }
         .onChange(of: renderKey) { _, _ in
             if !didFit, size.width > 0 { scale = fitScale; didFit = true }
+            refresh()
+        }
+        .onChange(of: space) { _, _ in
+            marker = nil
+            resetView()
             refresh()
         }
         .onChange(of: center) { _, _ in refresh() }
@@ -116,12 +144,21 @@ struct PendulumFractalView: View {
         let limit = duration, minCell = quality.minCell, dt = quality.dt
         let palette = PendulumPalette(accent: accent, highlightStable: highlight)
         let hw = Double(sz.width) / 2, hh = Double(sz.height) / 2
+        let fixed = fixedAngles
 
         renderer.request(viewport: Viewport(center: center, scale: s, size: sz), displayScale: displayScale) { cell, quick in
             let c = quick ? cell : max(cell, minCell)
             return Raster.image(size: sz, cell: c, cancelled: { !quick && tok.cancelled }) { sx, sy in
                 // A superseded sharp render bails out fast; coarse in-motion frames always finish.
                 if !quick && tok.cancelled { return (0, 0, 0) }
+                if let a = fixed {
+                    // Momentum plane: not periodic, started from the fixed angles.
+                    let p1 = cx + (sx - hw) / s, p2 = cy - (sy - hh) / s
+                    let v = PendulumPhysics.velocities(t1: a.t1, t2: a.t2, p1: p1, p2: p2)
+                    guard let t = PendulumPhysics.flipTime(t1: a.t1, t2: a.t2, w1: v.w1, w2: v.w2, limit: limit,
+                                                           dt: dt, adaptive: true) else { return palette.stable }
+                    return palette.flipColor(t, limit: limit)
+                }
                 // Angles are periodic, so the plane repeats forever.
                 let t1 = PendulumPhysics.wrap(cx + (sx - hw) / s), t2 = PendulumPhysics.wrap(cy - (sy - hh) / s)
                 guard let t = PendulumPhysics.flipTime(t1: t1, t2: t2, limit: limit, dt: dt) else { return palette.stable }
@@ -135,7 +172,7 @@ struct PendulumFractalView: View {
         let sz = size
         let cell = Raster.cell(for: sz, displayScale: displayScale, maxPixels: quality.animatedPixels)
         field.reset(viewport: Viewport(center: center, scale: Double(scale), size: sz), cell: cell,
-                    skipStable: display == .grow)
+                    skipStable: display == .grow && space == .angle, momentum: fixedAngles)
         drawField()
     }
 
@@ -176,10 +213,11 @@ struct PendulumFractalView: View {
         ZStack {
             Color.black
             if display.animated {
-                tiled(field.image, field.imageViewport)
+                picture(field.image, field.imageViewport)
             } else {
-                tiled(renderer.image, renderer.viewport)
+                picture(renderer.image, renderer.viewport)
             }
+            if space == .momentum { originCross }
             markerView
             TimelineView(.animation(paused: !display.animated || !playing || !active)) { timeline in
                 Color.clear
@@ -194,6 +232,9 @@ struct PendulumFractalView: View {
         .overlay(alignment: .bottomLeading) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(formatNumber(Double(scale / fitScale), digits: 3))×")
+                if space == .momentum {
+                    Text(String(format: "θ₁ %.4g°  θ₂ %.4g°  (p₁ →, p₂ ↑)", model.startT1 * 180 / .pi, model.startT2 * 180 / .pi))
+                }
                 if display.animated { Text("t = \(formatNumber(field.time, digits: 3)) s") }
             }
             .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -206,11 +247,16 @@ struct PendulumFractalView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if let m = marker {
-                let t1 = PendulumPhysics.wrap(m.t1), t2 = PendulumPhysics.wrap(m.t2)
+                let t1 = space == .angle ? PendulumPhysics.wrap(m.t1) : model.startT1
+                let t2 = space == .angle ? PendulumPhysics.wrap(m.t2) : model.startT2
+                let v = space == .angle ? (w1: 0.0, w2: 0.0)
+                                        : PendulumPhysics.velocities(t1: t1, t2: t2, p1: m.t1, p2: m.t2)
                 Button {
-                    model.launch(t1: t1, t2: t2)
+                    model.launch(t1: t1, t2: t2, w1: v.w1, w2: v.w2)
                 } label: {
-                    Label(String(format: "Simulate  θ₁ %.4g°  θ₂ %.4g°", t1 * 180 / .pi, t2 * 180 / .pi),
+                    Label(space == .angle
+                          ? String(format: "Simulate  θ₁ %.4g°  θ₂ %.4g°", t1 * 180 / .pi, t2 * 180 / .pi)
+                          : String(format: "Simulate  p₁ %.4g  p₂ %.4g", m.t1, m.t2),
                           systemImage: "play.fill")
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .frame(minHeight: 30)
@@ -250,6 +296,28 @@ struct PendulumFractalView: View {
             }
         )
         .accessibilityLabel("Double pendulum fractal. Drag to pan, pinch to zoom, tap to pick a starting position.")
+    }
+
+    /// Angle space tiles; the momentum plane is a single, non-repeating picture.
+    @ViewBuilder
+    private func picture(_ image: CGImage?, _ vp: Viewport) -> some View {
+        if space == .angle {
+            tiled(image, vp)
+        } else if image != nil, vp.scale > 0, size.width > 0 {
+            ViewportImage(image: image, viewport: vp, center: center, scale: scale, size: size)
+        }
+    }
+
+    /// Axes through p₁ = p₂ = 0 (a pendulum released from rest).
+    private var originCross: some View {
+        let d = Center(x: 0, y: 0).difference(from: center)
+        let o = CGPoint(x: size.width / 2 + CGFloat(d.dx) * scale, y: size.height / 2 - CGFloat(d.dy) * scale)
+        return Path { p in
+            p.move(to: CGPoint(x: 0, y: o.y)); p.addLine(to: CGPoint(x: size.width, y: o.y))
+            p.move(to: CGPoint(x: o.x, y: 0)); p.addLine(to: CGPoint(x: o.x, y: size.height))
+        }
+        .stroke(Color.white.opacity(0.35), lineWidth: 1)
+        .allowsHitTesting(false)
     }
 
     /// The picture repeats every 2π in both angles, so a frame that is a little behind the view (while panning
@@ -292,6 +360,11 @@ struct PendulumFractalView: View {
 
     private var controls: some View {
         VStack(spacing: 8) {
+            Picker("Space", selection: $space) {
+                ForEach(Space.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+
             Picker("Display", selection: $display) {
                 ForEach(Display.allCases) { Text($0.rawValue).tag($0) }
             }
@@ -381,6 +454,14 @@ struct PendulumFractalView: View {
     }
 
     private var hint: String {
+        if space == .momentum {
+            let base = "Starting angles are fixed (the simulator's); each pixel is a starting momentum (p₁ →, p₂ ↑). The centre is released from rest and energy grows outward, so far from the centre everything flips quickly. Not periodic. Tap to pick a start."
+            switch display {
+            case .flipMap: return "Color = time until a bob flips. Dark = never flips in the simulated time. " + base
+            case .grow: return "Every pixel is released at once and lights up when it flips. " + base
+            case .live: return "Every pixel is live, colored by its current angles. " + base
+            }
+        }
         switch display {
         case .flipMap: return "Color = time until a bob flips. Dark = never flips in the simulated time. The picture repeats forever in both angles. Tap to pick a start."
         case .grow: return "Every pixel is a pendulum released at once: a pixel lights up when its pendulum flips. Panning or zooming restarts the clock."

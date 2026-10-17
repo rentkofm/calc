@@ -64,10 +64,13 @@ final class PendulumField {
     @ObservationIgnored private var flip: [Float] = []
     @ObservationIgnored private var skip: [Bool] = []
     @ObservationIgnored var lastTick: Date?
-    private static let stepSize = 0.01
+    private var stepSize = 0.01
 
     /// Starts every pixel's pendulum from rest. With `skipStable`, pixels that provably never flip aren't simulated.
-    func reset(viewport vp: Viewport, cell: CGFloat, skipStable: Bool) {
+    /// With `momentum` (fixed starting angles), the plane is instead (p₁, p₂): each pixel starts at those angles
+    /// with the velocities its canonical momenta imply, the plane isn't periodic, and nothing is skipped.
+    func reset(viewport vp: Viewport, cell: CGFloat, skipStable: Bool, momentum: (t1: Double, t2: Double)? = nil) {
+        stepSize = momentum == nil ? 0.01 : 0.004
         viewport = vp
         w = max(1, Int(vp.size.width / cell))
         h = max(1, Int(vp.size.height / cell))
@@ -78,11 +81,17 @@ final class PendulumField {
         flip = [Float](repeating: -1, count: w * h)
         skip = [Bool](repeating: false, count: w * h)
         for j in 0..<h {
-            let t2 = PendulumPhysics.wrap(cy - ((Double(j) + 0.5) * ky - hh) / s)
+            let y = cy - ((Double(j) + 0.5) * ky - hh) / s
             for i in 0..<w {
-                let t1 = PendulumPhysics.wrap(cx + ((Double(i) + 0.5) * kx - hw) / s)
-                states[j * w + i] = PendulumState(t1: t1, t2: t2)
-                if skipStable && PendulumPhysics.provablyStable(t1: t1, t2: t2) { skip[j * w + i] = true }
+                let x = cx + ((Double(i) + 0.5) * kx - hw) / s
+                if let m = momentum {
+                    let v = PendulumPhysics.velocities(t1: m.t1, t2: m.t2, p1: x, p2: y)
+                    states[j * w + i] = PendulumState(t1: m.t1, t2: m.t2, w1: v.w1, w2: v.w2)
+                } else {
+                    let t1 = PendulumPhysics.wrap(x), t2 = PendulumPhysics.wrap(y)
+                    states[j * w + i] = PendulumState(t1: t1, t2: t2)
+                    if skipStable && PendulumPhysics.provablyStable(t1: t1, t2: t2) { skip[j * w + i] = true }
+                }
             }
         }
         time = 0
@@ -92,7 +101,7 @@ final class PendulumField {
     func advance(by dt: Double) {
         let n = w * h
         guard n > 0, dt > 0 else { return }
-        let steps = max(1, Int((dt / Self.stepSize).rounded(.up)))
+        let steps = max(1, Int((dt / stepSize).rounded(.up)))
         let hs = dt / Double(steps)
         let t0 = time
         let chunk = 256

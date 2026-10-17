@@ -211,7 +211,7 @@ struct PendulumSimulatorView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     if !model.mainVisible {
-                        Text("Both angles are 0, so no pendulum is generated.")
+                        Text("Angles and velocities are all 0, so no pendulum is generated.")
                             .font(.footnote).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -261,7 +261,7 @@ struct PendulumSimulatorView: View {
                                             Image(systemName: "plus.circle").frame(width: 40, height: 32)
                                         }
                                         .buttonStyle(.plain)
-                                        .disabled(b.t1 == 0 && b.t2 == 0)
+                                        .disabled(b.t1 == 0 && b.t2 == 0 && b.w1 == 0 && b.w2 == 0)
                                         .accessibilityLabel("Add bookmark as another pendulum")
                                         Button { model.removeBookmark(b) } label: {
                                             Image(systemName: "trash").frame(width: 40, height: 32)

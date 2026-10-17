@@ -58,14 +58,29 @@ enum PendulumPhysics {
     @inline(__always)
     static func provablyStable(t1: Double, t2: Double) -> Bool { 2 * cos(t1) + cos(t2) > 1 }
 
+    /// Canonical momenta (p₁, p₂) = ∂L/∂(ω₁, ω₂) for L = ω₁² + ½ω₂² + ω₁ω₂cos(θ₁−θ₂) − V, as used by `derivative`.
+    static func momenta(t1: Double, t2: Double, w1: Double, w2: Double) -> (p1: Double, p2: Double) {
+        let c = cos(t1 - t2)
+        return (2 * w1 + w2 * c, w2 + w1 * c)
+    }
+
+    /// Inverse of `momenta`. The mass matrix [[2, c], [c, 1]] has determinant 2 − c² ≥ 1, so it is always invertible.
+    static func velocities(t1: Double, t2: Double, p1: Double, p2: Double) -> (w1: Double, w2: Double) {
+        let c = cos(t1 - t2), det = 2 - c * c
+        return ((p1 - c * p2) / det, (2 * p2 - c * p1) / det)
+    }
+
     /// Time until either bob first flips over the top (|θ| > π), or nil if it never does within `limit`.
-    static func flipTime(t1: Double, t2: Double, limit: Double, dt: Double = 0.02) -> Double? {
-        if provablyStable(t1: t1, t2: t2) { return nil }
-        var s = PendulumState(t1: t1, t2: t2)
+    /// Released from rest unless velocities are given; with `adaptive`, the step shrinks for fast-moving bobs.
+    static func flipTime(t1: Double, t2: Double, w1: Double = 0, w2: Double = 0, limit: Double,
+                         dt: Double = 0.02, adaptive: Bool = false) -> Double? {
+        if w1 == 0 && w2 == 0 && provablyStable(t1: t1, t2: t2) { return nil }
+        var s = PendulumState(t1: t1, t2: t2, w1: w1, w2: w2)
         var t = 0.0
         while t < limit {
-            step(&s, dt: dt)
-            t += dt
+            let h = adaptive ? maxStep(for: s, limit: dt) : dt
+            step(&s, dt: h)
+            t += h
             if abs(s.t1) > .pi || abs(s.t2) > .pi { return t }
         }
         return nil
